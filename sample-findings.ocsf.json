@@ -1,0 +1,114 @@
+[
+  {
+    "finding_info": { "uid": "prowler-s3_bucket_secure_transport_policy-123456789012-ap-northeast-2-example-app-bucket" },
+    "metadata": { "event_code": "s3_bucket_secure_transport_policy" },
+    "severity": "Medium",
+    "status_code": "FAIL",
+    "time_dt": "2026-08-05T14:20:00.000000",
+    "cloud": { "account": { "uid": "123456789012" } },
+    "resources": [
+      {
+        "uid": "arn:aws:s3:::example-app-bucket",
+        "type": "AwsS3Bucket",
+        "region": "ap-northeast-2",
+        "group": { "name": "s3" }
+      }
+    ]
+  },
+  {
+    "finding_info": { "uid": "prowler-s3_bucket_secure_transport_policy-123456789012-ap-northeast-2-cloudtrail" },
+    "metadata": { "event_code": "s3_bucket_secure_transport_policy" },
+    "severity": "Medium",
+    "status_code": "FAIL",
+    "time_dt": "2026-08-05T14:20:00.000000",
+    "cloud": { "account": { "uid": "123456789012" } },
+    "resources": [
+      {
+        "uid": "arn:aws:s3:::aws-cloudtrail-logs-123456789012-a1b2c3d4",
+        "type": "AwsS3Bucket",
+        "region": "ap-northeast-2",
+        "group": { "name": "s3" }
+      }
+    ]
+  },
+  {
+    "finding_info": { "uid": "prowler-s3_bucket_kms_encryption-123456789012-ap-northeast-2-example-app-bucket" },
+    "metadata": { "event_code": "s3_bucket_kms_encryption" },
+    "severity": "Medium",
+    "status_code": "FAIL",
+    "time_dt": "2026-08-05T14:20:00.000000",
+    "cloud": { "account": { "uid": "123456789012" } },
+    "resources": [
+      {
+        "uid": "arn:aws:s3:::example-app-bucket",
+        "type": "AwsS3Bucket",
+        "region": "ap-northeast-2",
+        "group": { "name": "s3" }
+      }
+    ]
+  },
+  {
+    "finding_info": { "uid": "prowler-s3_account_level_public_access_blocks-123456789012-ap-northeast-2" },
+    "metadata": { "event_code": "s3_account_level_public_access_blocks" },
+    "severity": "High",
+    "status_code": "FAIL",
+    "time_dt": "2026-08-05T14:20:00.000000",
+    "cloud": { "account": { "uid": "123456789012" } },
+    "resources": [
+      {
+        "uid": "arn:aws:s3:::example-app-bucket",
+        "type": "AwsS3Bucket",
+        "region": "ap-northeast-2",
+        "group": { "name": "s3" }
+      }
+    ]
+  },
+  {
+    "finding_info": { "uid": "prowler-s3_bucket_no_mfa_delete-123456789012-ap-northeast-2-example-app-bucket" },
+    "metadata": { "event_code": "s3_bucket_no_mfa_delete" },
+    "severity": "Medium",
+    "status_code": "FAIL",
+    "time_dt": "2026-08-05T14:20:00.000000",
+    "cloud": { "account": { "uid": "123456789012" } },
+    "resources": [
+      {
+        "uid": "arn:aws:s3:::example-app-bucket",
+        "type": "AwsS3Bucket",
+        "region": "ap-northeast-2",
+        "group": { "name": "s3" }
+      }
+    ]
+  },
+  {
+    "finding_info": { "uid": "prowler-ec2_instance_public_ip-123456789012-ap-northeast-2-i-0abc" },
+    "metadata": { "event_code": "ec2_instance_public_ip" },
+    "severity": "Low",
+    "status_code": "FAIL",
+    "time_dt": "2026-08-05T14:20:00.000000",
+    "cloud": { "account": { "uid": "123456789012" } },
+    "resources": [
+      {
+        "uid": "arn:aws:ec2:ap-northeast-2:123456789012:instance/i-0abc",
+        "type": "AwsEc2Instance",
+        "region": "ap-northeast-2",
+        "group": { "name": "ec2" }
+      }
+    ]
+  },
+  {
+    "finding_info": { "uid": "prowler-s3_bucket_secure_transport_policy-123456789012-ap-northeast-2-passing" },
+    "metadata": { "event_code": "s3_bucket_secure_transport_policy" },
+    "severity": "Medium",
+    "status_code": "PASS",
+    "time_dt": "2026-08-05T14:20:00.000000",
+    "cloud": { "account": { "uid": "123456789012" } },
+    "resources": [
+      {
+        "uid": "arn:aws:s3:::already-compliant-bucket",
+        "type": "AwsS3Bucket",
+        "region": "ap-northeast-2",
+        "group": { "name": "s3" }
+      }
+    ]
+  }
+]

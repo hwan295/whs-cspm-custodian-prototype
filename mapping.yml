@@ -1,0 +1,23 @@
+# Prowler 의 metadata.event_code 를 Cloud Custodian 정책 이름에 연결한다.
+# Custodian 은 findings 를 입력으로 받지 않고 AWS 를 직접 조회하므로,
+# 두 도구의 유일한 연결점이 이 매핑이다.
+#
+# policy: policies/<이름>.yml 의 정책 이름 (조치 불가 항목은 null)
+# auto_fixable: false 면 정책을 실행하지 않고 reason 을 남긴다
+
+s3_bucket_secure_transport_policy:
+  policy: s3-no-secure-transport
+  auto_fixable: true
+
+s3_bucket_kms_encryption:
+  policy: s3-no-kms-encryption
+  auto_fixable: true
+
+s3_account_level_public_access_blocks:
+  policy: s3-account-public-block
+  auto_fixable: true
+
+s3_bucket_no_mfa_delete:
+  policy: null
+  auto_fixable: false
+  reason: "루트 자격증명 필요, 자동화 불가"

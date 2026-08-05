@@ -1,0 +1,14 @@
+# 퍼블릭 액세스 차단(Public Access Block)이 완전히 켜져 있지 않은 버킷을 찾는다.
+# check-public-block 은 파라미터를 주지 않으면 4개 항목
+# (BlockPublicAcls / BlockPublicPolicy / IgnorePublicAcls / RestrictPublicBuckets)
+# 중 하나라도 미설정이거나 false 인 버킷을 남긴다.
+#
+# 주의: 이 필터는 aws.s3(버킷 단위) 필터다. Prowler 의
+# s3_account_level_public_access_blocks 는 계정 단위 설정을 보는 체크이므로
+# 판정 단위가 다르다. 계정 단위로 맞추려면 resource 를 aws.account 로,
+# 필터를 s3-public-block 으로 바꿔야 한다. (README 참고)
+policies:
+  - name: s3-account-public-block
+    resource: aws.s3
+    filters:
+      - type: check-public-block

@@ -1,0 +1,12 @@
+# KMS 기반 기본 암호화(SSE-KMS)가 설정되지 않은 버킷을 찾는다.
+# bucket-encryption 필터는 "조건에 맞는" 버킷을 남기므로,
+# not 으로 감싸 "SSE-KMS 가 켜져 있지 않은" 버킷을 골라낸다.
+# (암호화가 아예 없는 버킷 + AES256 로만 암호화된 버킷이 모두 걸린다)
+policies:
+  - name: s3-no-kms-encryption
+    resource: aws.s3
+    filters:
+      - not:
+        - type: bucket-encryption
+          state: true
+          crypto: aws:kms

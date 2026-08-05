@@ -1,0 +1,13 @@
+# Custodian dryrun 결과 - 버킷 정책 전문, ACL 소유자 ID, 태그가 평문으로 남는다
+out/
+
+# 조치 로그 - 계정 ID, 리소스 ARN 포함
+logs/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store

@@ -1,0 +1,12 @@
+policies:
+  - name: s3-no-secure-transport
+    resource: aws.s3
+    filters:
+      - not:
+        - type: has-statement
+          statements:
+            - Effect: Deny
+              Action: "s3:*"
+              Condition:
+                Bool:
+                  "aws:SecureTransport": "false"
