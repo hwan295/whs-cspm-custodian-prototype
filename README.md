@@ -166,7 +166,9 @@ B 계정 자격증명으로 실행했을 때 **에러 없이 전부 `dryrun_not_
 | `dryrun_matched` | 정책 dryrun 결과에 finding 의 리소스가 **있다**. Prowler 탐지와 Custodian 판정이 일치한다 — 조치 대상으로 확정 | 실행함 |
 | `dryrun_not_matched` | dryrun 결과에 해당 리소스가 **없다**. 두 도구의 판정 기준 차이이거나, 스캔 이후 이미 조치된 경우 | 실행함 |
 | `unmapped` | `mapping.yml` 에 해당 `check_id` 항목이 없다. 매핑을 추가해야 처리된다 | 실행 안 함 |
-| `not_fixable` | 매핑에 있지만 `auto_fixable: false`. 자동 조치가 불가능한 항목으로, `reason` 에 사유가 담긴다 (예: MFA Delete 는 루트 자격증명 필요) | 실행 안 함 |
+| `not_supported` | 조치 도구 자체가 없다 (`mode: not_supported`). 예: MFA Delete 는 루트 자격증명 필요 | 실행 안 함 |
+| `manual_required` | 도구는 있지만 조치가 위험해 사람이 처리해야 한다 (`mode: manual`) | 실행 안 함 |
+| `approval_pending` | 승인이 필요한 조치 (`mode: approve`). 승인 흐름 구현 전까지는 기록만 한다 | 실행 안 함 |
 | `failed` | Custodian 실행이 실패했거나 결과 파일을 읽지 못했다. `reason` 에 에러 메시지가 담긴다. **한 정책이 실패해도 나머지 정책은 계속 진행한다** | 시도함 |
 | `arn_not_found` | dryrun 결과에서 ARN 필드를 찾지 못했거나, finding 에 `resource_uid` 가 없어 대조할 수 없다 | 실행함 |
 | `account_mismatch` | finding 의 `account_uid` 와 Custodian 이 실제로 조회한 계정이 다르다. 다른 계정 자격증명으로 실행한 경우이며, 대조를 생략한다 | 실행함 |
@@ -188,10 +190,65 @@ B 계정 자격증명으로 실행했을 때 **에러 없이 전부 `dryrun_not_
     "policy_name": "s3-no-secure-transport",
     "status": "dryrun_matched",
     "reason": null,
+    "mode": "auto",
+    "disruption": "none",
+    "blast_radius": "resource",
+    "propagation_delay": "immediate",
+    "risk_note": "HTTP 로만 접근하던 클라이언트가 있으면 차단된다",
     "executed_at": "2026-08-05T14:30:00"
   }
 ]
 ```
+
+---
+
+## 조치 위험도 (remediation)
+
+**severity 와 disruption 은 다른 축이다.** severity 는 "문제가 얼마나 심각한가",
+disruption 은 "고치는 행위가 얼마나 위험한가"다. RDS 암호화는 severity 가 높지만
+조치하려면 DB 를 재생성해야 해서 자동으로 돌릴 수 없다.
+
+그래서 **mode 는 disruption 이 결정한다. severity 는 mode 에 관여하지 않는다.**
+(severity 는 처리 우선순위와 승인 기한에만 쓴다.)
+
+### disruption
+
+| 값 | 의미 | 예시 |
+|---|---|---|
+| `none` | 설정 변경만, 재시작·재생성 없음 | S3 암호화, 퍼블릭 차단, IMDSv2 |
+| `restart` | 리소스 재시작 필요 | 일부 파라미터 그룹 변경 |
+| `recreate` | 리소스 재생성 필요 (사실상 중단) | RDS 암호화, EBS 암호화 |
+| `traffic` | 네트워크 경로 변경, 정당한 트래픽까지 영향 | 보안그룹·NACL 규칙 제거 |
+| `access` | 권한 변경, 앱 동작 영향 | IAM 정책 축소 |
+| `destructive` | 되돌릴 수 없는 파기 | 노출된 액세스 키 삭제 |
+
+### mode 결정 규칙
+
+| disruption | mode |
+|---|---|
+| `none` | `auto` — 바로 dryrun 실행 |
+| `restart` / `traffic` | `approve` — 승인 큐 (구현 전까지는 기록만) |
+| `recreate` / `access` / `destructive` | `manual` — 사람이 직접 처리 |
+
+조치 도구 자체가 없으면 disruption 과 무관하게 `not_supported` 다.
+
+### blast_radius
+
+`resource` / `account` 두 값이며, **판정 방식이 달라진다.**
+
+- `resource`: finding 의 `resource_uid` 와 dryrun 결과의 ARN 을 대조한다.
+- `account`: 계정 설정 하나를 보는 체크이므로 ARN 대조를 하지 않는다. 정책에 걸린
+  리소스가 하나라도 있으면 "계정에 문제가 있다"로 판정한다.
+
+계정 단위 체크에 리소스 단위로 대조하면 판정 단위가 어긋난다
+(`s3_account_level_public_access_blocks` 가 그 사례다).
+
+### propagation_delay
+
+`immediate` / `seconds` / `minutes`. 조치 후 반영까지 걸리는 시간이다.
+IAM 변경은 수십 초, CloudFront 는 수 분 걸려서, 조치 직후 재확인하면 아직 반영되지
+않아 "실패"로 오판한다. **지금은 로그에 기록만 하고, 조치 후 재확인 기능이 붙을 때
+대기 시간으로 쓴다.**
 
 ---
 
@@ -202,13 +259,22 @@ B 계정 자격증명으로 실행했을 때 **에러 없이 전부 `dryrun_not_
 
 ```yaml
 <prowler 의 metadata.event_code>:
-  policy: <policies/ 아래 정책 이름>   # 조치 불가면 null
-  auto_fixable: true                   # false 면 실행하지 않는다
-  reason: "..."                        # auto_fixable=false 일 때 사유
+  policy: <policies/ 아래 정책 이름>   # 조치 도구가 없으면 null
+  remediation:
+    mode: auto                 # auto / approve / manual / not_supported
+    disruption: none           # none / restart / recreate / traffic / access / destructive
+    blast_radius: resource     # resource / account
+    propagation_delay: immediate
+    reversible: true
+    cost_impact: none          # none / low / high
+    risk_note: "자동 조치라도 남아 있는 위험"
 ```
 
-조치 불가 항목도 `auto_fixable: false` 로 **명시적으로** 남긴다. 매핑에 아예 없으면
-`unmapped` 가 되어 "아직 검토 안 한 체크"와 구분되지 않는다.
+- `remediation` 이 없거나 키가 빠지면 **`mode: manual`, `disruption: recreate`** 로
+  간주한다. 모르는 조치는 위험하다고 보는 쪽이 안전하다.
+- 조치 불가 항목도 `mode: not_supported` 로 **명시적으로** 남긴다. 매핑에 아예 없으면
+  `unmapped` 가 되어 "아직 검토 안 한 체크"와 구분되지 않는다.
+- `risk_note` 가 있으면 실행 전에 콘솔에 `[주의]` 로 출력되고 로그에도 남는다.
 
 ---
 

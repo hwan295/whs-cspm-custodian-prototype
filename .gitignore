@@ -11,3 +11,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# 개인 작업 계획 (공유 대상 아님)
+PLAN.md

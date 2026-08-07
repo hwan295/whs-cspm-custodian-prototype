@@ -2,22 +2,88 @@
 # Custodian 은 findings 를 입력으로 받지 않고 AWS 를 직접 조회하므로,
 # 두 도구의 유일한 연결점이 이 매핑이다.
 #
-# policy: policies/<이름>.yml 의 정책 이름 (조치 불가 항목은 null)
-# auto_fixable: false 면 정책을 실행하지 않고 reason 을 남긴다
+# policy: policies/<이름>.yml 의 정책 이름 (조치 도구가 없으면 null)
+#
+# remediation: 조치의 "위험도"를 기술한다. severity(문제의 심각도)와는 다른 축이다.
+#   mode          auto / approve / manual / not_supported
+#                 - auto          : 바로 dryrun 실행
+#                 - approve       : 승인 큐에 넣는다 (승인 흐름 구현 전까지는 기록만)
+#                 - manual        : 사람이 직접 처리. 도구는 안내만 한다
+#                 - not_supported : 조치 도구 자체가 없다
+#   disruption    none / restart / recreate / traffic / access / destructive
+#                 - none        : 설정 변경만, 재시작·재생성 없음
+#                 - restart     : 리소스 재시작 필요
+#                 - recreate    : 리소스 재생성 필요 (사실상 중단)
+#                 - traffic     : 네트워크 경로 변경, 정당한 트래픽까지 영향
+#                 - access      : 권한 변경, 앱 동작 영향
+#                 - destructive : 되돌릴 수 없는 파기
+#   blast_radius  resource / account
+#                 account 는 계정 전체가 한 번에 영향받는다. 판정 방식도 달라진다
+#   propagation_delay  immediate / seconds / minutes
+#                 조치 후 반영까지 걸리는 시간. 조치 후 재확인 타이밍에 쓴다
+#   reversible    되돌릴 수 있는지
+#   cost_impact   none / low / high
+#   risk_note     자동 조치라도 남아 있는 위험. 로그에 함께 남는다
+#
+# mode 는 disruption 이 결정한다. severity 는 mode 에 관여하지 않는다
+# (severity 는 처리 우선순위와 승인 기한에만 쓴다).
+#   none                -> auto
+#   restart / traffic   -> approve
+#   recreate / access / destructive -> manual
 
 s3_bucket_secure_transport_policy:
   policy: s3-no-secure-transport
-  auto_fixable: true
+  remediation:
+    mode: auto
+    disruption: none
+    blast_radius: resource
+    propagation_delay: immediate
+    reversible: true
+    cost_impact: none
+    risk_note: "HTTP 로만 접근하던 클라이언트가 있으면 차단된다"
 
 s3_bucket_kms_encryption:
   policy: s3-no-kms-encryption
-  auto_fixable: true
+  remediation:
+    mode: auto
+    disruption: none
+    blast_radius: resource
+    propagation_delay: immediate
+    reversible: true
+    cost_impact: low
+    risk_note: "신규 객체만 영향. 기존 객체는 그대로이며 KMS 요청 비용이 발생한다"
 
 s3_account_level_public_access_blocks:
   policy: s3-account-public-block
-  auto_fixable: true
+  remediation:
+    mode: auto
+    disruption: none
+    blast_radius: account
+    propagation_delay: immediate
+    reversible: true
+    cost_impact: none
+    risk_note: "정적 웹사이트 호스팅 버킷이 있으면 사이트가 내려간다"
 
 s3_bucket_no_mfa_delete:
   policy: null
-  auto_fixable: false
-  reason: "루트 자격증명 필요, 자동화 불가"
+  remediation:
+    mode: not_supported
+    disruption: none
+    blast_radius: resource
+    propagation_delay: immediate
+    reversible: true
+    cost_impact: none
+    risk_note: "루트 자격증명이 필요해 Custodian 으로 조치할 수 없다"
+
+# 조치 도구는 있지만 위험해서 사람이 처리해야 하는 예시.
+# policy 가 null 이므로 실행되지 않고 승인/안내 대상으로만 기록된다.
+rds_instance_encryption:
+  policy: null
+  remediation:
+    mode: manual
+    disruption: recreate
+    blast_radius: resource
+    propagation_delay: minutes
+    reversible: false
+    cost_impact: low
+    risk_note: "스냅샷 생성 후 복원이 필요해 DB 가 중단된다"
