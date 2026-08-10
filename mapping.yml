@@ -24,6 +24,9 @@
 #   reversible    되돌릴 수 있는지
 #   cost_impact   none / low / high
 #   risk_note     자동 조치라도 남아 있는 위험. 로그에 함께 남는다
+#   scope_key     실행 범위를 좁힐 때 쓸 Custodian 리소스 필드
+#                 (S3 는 Name, EC2 는 InstanceId). ARN 의 마지막 조각과 대조한다.
+#                 없으면 계정 전체가 대상이 되므로 실조치 단계에서는 반드시 지정할 것
 #
 # mode 는 disruption 이 결정한다. severity 는 mode 에 관여하지 않는다
 # (severity 는 처리 우선순위와 승인 기한에만 쓴다).
@@ -41,6 +44,7 @@ s3_bucket_secure_transport_policy:
     reversible: true
     cost_impact: none
     risk_note: "HTTP 로만 접근하던 클라이언트가 있으면 차단된다"
+    scope_key: Name
 
 s3_bucket_kms_encryption:
   policy: s3-no-kms-encryption
@@ -52,6 +56,7 @@ s3_bucket_kms_encryption:
     reversible: true
     cost_impact: low
     risk_note: "신규 객체만 영향. 기존 객체는 그대로이며 KMS 요청 비용이 발생한다"
+    scope_key: Name
 
 s3_account_level_public_access_blocks:
   policy: s3-account-public-block

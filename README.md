@@ -52,17 +52,18 @@ findings 를 넣으면 된다.
       실행 대상 4건 / 제외 2건
 [3/4] Custodian dryrun 실행: 정책 3개
   - s3-no-secure-transport (finding 2건)
-      실행: custodian run -s .../out .../policies/s3-no-secure-transport.yml --dryrun
+      대상 2건으로 범위 제한 (Name)
       dryrun 대상 리소스 2건 / ARN 확보 2건
+      조회 계정 123456789012
   ...
 [4/4] 조치 로그 저장: .../logs/actions-20260805-151011.json
 
 === 요약 ===
-  dryrun_matched               1건
-  dryrun_not_matched           1건
-  not_fixable                  1건
-  unmapped                     1건
-  합계                         4건
+  still_open                1건
+  already_fixed             1건
+  not_supported             1건
+  unmapped                  1건
+  합계                      4건
 ```
 
 ### Prowler 로 findings 만들기
@@ -131,6 +132,33 @@ custodian schema aws.s3.filters.check-public-block
 
 없는 필드는 `None` 으로 두고 경고를 출력한다. 파싱 실패로 중단하지 않는다.
 
+### 실행 범위 제한 — 실행 전에 대상을 좁힌다
+
+**Custodian 은 정책을 계정 전체에 대해 돌린다.** 원본 정책을 그대로 실행하면
+findings 에 없는 리소스까지 대상이 된다. dryrun 동안은 무해하지만,
+`actions` 를 붙이는 순간 **의도하지 않은 리소스까지 고치게 된다.**
+
+그래서 실행 전에 findings 의 리소스로 범위를 좁힌 임시 정책을 만들어 돌린다.
+
+```yaml
+filters:
+  - type: value          # <- 자동으로 맨 앞에 끼워 넣는다
+    key: Name
+    op: in
+    value: [miraen3]
+  - not:
+    - type: bucket-encryption
+      ...
+```
+
+- 어떤 필드로 좁힐지는 `mapping.yml` 의 `scope_key` 로 정한다 (S3 는 `Name`,
+  EC2 는 `InstanceId`). ARN 의 마지막 조각과 대조한다.
+- 생성된 정책은 `out/_scoped/` 에 남으므로 무엇을 대상으로 돌렸는지 확인할 수 있다.
+- `blast_radius: account` 인 체크는 **범위 제한을 하지 않는다.** 계정 설정 하나를
+  보는 것이라 리소스 필터를 얹으면 판정이 어긋난다.
+- `scope_key` 가 없으면 경고를 출력하고 계정 전체를 대상으로 돈다.
+  **실조치 단계에서는 반드시 지정해야 한다.**
+
 ### 실행기가 정책당 1회만 도는 이유
 
 같은 정책에 걸린 findings 를 묶어서 Custodian 을 **정책당 1회만** 실행한다.
@@ -140,6 +168,9 @@ Custodian 은 finding 을 입력으로 받지 않고 AWS 전체를 조회하므�
 실행 후 `out/<정책이름>/resources.json` 을 읽어, finding 의 `resource_uid` 와
 일치하는 리소스가 있는지 대조한다. 리소스에서 ARN 을 찾을 때는
 `BucketArn` → `Arn` → `arn` 순으로 시도한다 (S3 버킷은 `BucketArn` 을 쓴다).
+
+범위 제한을 먼저 하므로 이 대조는 **"의도한 대상이 제대로 걸렸는지" 검증**이다.
+범위 제한 전에는 "어느 게 내 대상인가"를 고르는 역할이었다.
 
 ### 계정 대조
 
@@ -152,7 +183,7 @@ Custodian 은 boto3 기본 자격증명 체인(`~/.aws/credentials` 기본 프�
 비교한다 (추가 의존성 없음).
 
 다르면 `account_mismatch` 로 기록하고 대조를 생략한다. 이 확인이 없으면 A 계정 findings 를
-B 계정 자격증명으로 실행했을 때 **에러 없이 전부 `dryrun_not_matched`** 가 되어
+B 계정 자격증명으로 실행했을 때 **에러 없이 전부 `already_fixed`** 가 되어
 "이미 조치됨"으로 오독된다.
 
 `metadata.json` 에서 계정을 확인하지 못하면 경고를 출력하고 대조는 건너뛴다.
@@ -163,8 +194,8 @@ B 계정 자격증명으로 실행했을 때 **에러 없이 전부 `dryrun_not_
 
 | status | 의미 | 실행 여부 |
 |---|---|---|
-| `dryrun_matched` | 정책 dryrun 결과에 finding 의 리소스가 **있다**. Prowler 탐지와 Custodian 판정이 일치한다 — 조치 대상으로 확정 | 실행함 |
-| `dryrun_not_matched` | dryrun 결과에 해당 리소스가 **없다**. 두 도구의 판정 기준 차이이거나, 스캔 이후 이미 조치된 경우 | 실행함 |
+| `still_open` | **지금도 위반 상태다.** Prowler 스캔 시점의 문제가 아직 남아 있다 — 조치 대상으로 확정 | 실행함 |
+| `already_fixed` | **더 이상 위반이 아니다.** 스캔 이후 해소됐거나, 두 도구의 판정 기준이 다르거나, 리소스가 삭제된 경우 | 실행함 |
 | `unmapped` | `mapping.yml` 에 해당 `check_id` 항목이 없다. 매핑을 추가해야 처리된다 | 실행 안 함 |
 | `not_supported` | 조치 도구 자체가 없다 (`mode: not_supported`). 예: MFA Delete 는 루트 자격증명 필요 | 실행 안 함 |
 | `manual_required` | 도구는 있지만 조치가 위험해 사람이 처리해야 한다 (`mode: manual`) | 실행 안 함 |
@@ -173,8 +204,12 @@ B 계정 자격증명으로 실행했을 때 **에러 없이 전부 `dryrun_not_
 | `arn_not_found` | dryrun 결과에서 ARN 필드를 찾지 못했거나, finding 에 `resource_uid` 가 없어 대조할 수 없다 | 실행함 |
 | `account_mismatch` | finding 의 `account_uid` 와 Custodian 이 실제로 조회한 계정이 다르다. 다른 계정 자격증명으로 실행한 경우이며, 대조를 생략한다 | 실행함 |
 
-`dryrun_not_matched` 와 `arn_not_found` 는 "안전하다"는 뜻이 아니라 **"판정 불가"** 에
-가깝다. 건수가 많으면 매핑이나 정책 필터를 다시 봐야 한다.
+**Prowler 스캔은 과거 시점의 사진이고, Custodian 실행은 지금 이 순간의 상태다.**
+그래서 고치기 직전에 "지금도 그런가"를 다시 확인한다. `still_open` 만 실제 조치 대상이다.
+
+다만 `already_fixed` 는 원인이 셋(이미 해소 / 판정 기준 차이 / 리소스 삭제)인데
+코드가 구분하지 못한다. **"안전하다"가 아니라 "더 볼 필요가 있다"에 가깝다.**
+건수가 많으면 매핑이나 정책 필터를 다시 봐야 한다. `arn_not_found` 도 마찬가지다.
 
 ### 조치 로그 형식
 
@@ -188,7 +223,7 @@ B 계정 자격증명으로 실행했을 때 **에러 없이 전부 `dryrun_not_
     "region": "ap-northeast-2",
     "severity": "Medium",
     "policy_name": "s3-no-secure-transport",
-    "status": "dryrun_matched",
+    "status": "still_open",
     "reason": null,
     "mode": "auto",
     "disruption": "none",
@@ -268,6 +303,7 @@ IAM 변경은 수십 초, CloudFront 는 수 분 걸려서, 조치 직후 재확
     reversible: true
     cost_impact: none          # none / low / high
     risk_note: "자동 조치라도 남아 있는 위험"
+    scope_key: Name            # 범위 제한에 쓸 리소스 필드 (S3=Name, EC2=InstanceId)
 ```
 
 - `remediation` 이 없거나 키가 빠지면 **`mode: manual`, `disruption: recreate`** 로

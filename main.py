@@ -36,6 +36,8 @@ POLICY_DIR = os.path.join(BASE_DIR, "policies")
 MAPPING_PATH = os.path.join(BASE_DIR, "mapping.yml")
 OUT_DIR = os.path.join(BASE_DIR, "out")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
+# 대상 리소스로 범위를 좁힌 임시 정책을 두는 곳
+SCOPED_DIR = os.path.join(OUT_DIR, "_scoped")
 
 # Custodian 한 번 실행에 허용할 최대 시간(초)
 CUSTODIAN_TIMEOUT = 300
@@ -178,6 +180,9 @@ DEFAULT_REMEDIATION = {
     "reversible": False,
     "cost_impact": "none",
     "risk_note": None,
+    # 범위 제한에 쓸 Custodian 리소스 필드 (예: S3 는 Name, EC2 는 InstanceId).
+    # 없으면 범위 제한 없이 계정 전체를 대상으로 돈다
+    "scope_key": None,
 }
 
 # mode 별로 실행 전에 확정되는 status.
@@ -234,13 +239,78 @@ def policy_file(policy_name):
     return os.path.join(POLICY_DIR, f"{policy_name}.yml")
 
 
-def run_custodian(policy_name):
+def extract_resource_name(arn):
+    """ARN 에서 리소스 식별자(마지막 조각)를 뽑는다.
+
+        arn:aws:s3:::miraen3                       -> miraen3
+        arn:aws:ec2:ap-…:123:instance/i-0abc       -> i-0abc
+    """
+    if not arn:
+        return None
+    tail = arn.split(":")[-1]
+    if "/" in tail:
+        tail = tail.split("/")[-1]
+    return tail or None
+
+
+def build_scoped_policy(policy_name, findings):
+    """findings 의 리소스만 대상으로 하는 임시 정책 파일을 만든다.
+
+    Custodian 은 정책을 계정 전체에 대해 돌린다. 그래서 원본 정책을 그대로 실행하면
+    findings 에 없는 리소스까지 대상이 된다. dryrun 동안은 무해하지만, actions 를
+    붙이는 순간 **의도하지 않은 리소스까지 고치게 된다.**
+    그래서 실행 전에 대상 리소스로 범위를 좁힌다.
+
+    반환: (실행할 정책 경로, 설명) / 실패 시 (None, 에러메시지)
+    """
+    src = policy_file(policy_name)
+    if not os.path.isfile(src):
+        return None, f"정책 파일이 없음: {src}"
+
+    remediation = (findings[0].get("remediation") or {}) if findings else {}
+    scope_key = remediation.get("scope_key")
+
+    # 계정 단위 체크는 계정 설정 하나를 보는 것이라 리소스 필터를 얹으면 판정이 어긋난다
+    if remediation.get("blast_radius") == "account":
+        return src, "계정 단위 체크 - 범위 제한 없이 실행"
+
+    if not scope_key:
+        return src, "경고: scope_key 가 없어 계정 전체를 대상으로 실행"
+
+    names = sorted({
+        n for n in (extract_resource_name(f.get("resource_uid")) for f in findings) if n
+    })
+    if not names:
+        return src, "경고: 대상 리소스 이름을 뽑지 못해 범위 제한 없이 실행"
+
+    try:
+        with open(src, "r", encoding="utf-8") as f:
+            doc = yaml.safe_load(f) or {}
+        policies = doc.get("policies") or []
+        if not policies:
+            return None, f"정책 파일에 policies 가 없음: {src}"
+
+        # 이름 필터를 맨 앞에 둔다. 뒤쪽 필터는 걸러진 리소스에 대해서만 평가된다
+        scope_filter = {"type": "value", "key": scope_key, "op": "in", "value": names}
+        policies[0]["filters"] = [scope_filter] + list(policies[0].get("filters") or [])
+
+        os.makedirs(SCOPED_DIR, exist_ok=True)
+        dst = os.path.join(SCOPED_DIR, f"{policy_name}.yml")
+        with open(dst, "w", encoding="utf-8") as f:
+            yaml.safe_dump(doc, f, allow_unicode=True, sort_keys=False)
+    except (OSError, yaml.YAMLError) as e:
+        return None, f"범위 제한 정책 생성 실패: {e}"
+
+    return dst, f"대상 {len(names)}건으로 범위 제한 ({scope_key})"
+
+
+def run_custodian(policy_path, policy_name):
     """Custodian 을 dryrun 으로 1회 실행한다.
 
     반환: (성공여부, 에러메시지)
     실패해도 예외를 던지지 않는다. 호출부가 다음 정책으로 계속 진행할 수 있어야 한다.
     """
-    path = policy_file(policy_name)
+    path = policy_path
     if not os.path.isfile(path):
         return False, f"정책 파일이 없음: {path}"
 
@@ -328,13 +398,27 @@ def execute_policies(findings_by_policy):
 
     같은 정책에 걸린 findings 를 묶어 정책당 1회만 실행한다
     (finding 마다 실행하면 같은 조회를 반복하게 되어 비효율).
+
+    순서가 중요하다. **실행 전에 대상 리소스로 범위를 좁히고**, 실행 후의 대조는
+    "의도한 대상이 제대로 걸렸는지" 검증하는 용도다.
+    범위 제한 없이 실행하면 findings 에 없는 리소스까지 대상이 된다.
     """
     print(f"[3/4] Custodian dryrun 실행: 정책 {len(findings_by_policy)}개")
 
     for policy_name, findings in findings_by_policy.items():
         print(f"  - {policy_name} (finding {len(findings)}건)")
 
-        ok, error = run_custodian(policy_name)
+        # 실행 전에 범위부터 좁힌다
+        policy_path, scope_note = build_scoped_policy(policy_name, findings)
+        if policy_path is None:
+            print(f"      실패: {scope_note}")
+            for finding in findings:
+                finding["status"] = "failed"
+                finding["reason"] = scope_note
+            continue
+        print(f"      {scope_note}")
+
+        ok, error = run_custodian(policy_path, policy_name)
         if not ok:
             print(f"      실패: {error}")
             for finding in findings:
@@ -368,7 +452,7 @@ def execute_policies(findings_by_policy):
             finding_account = finding.get("account_uid")
 
             # 계정 대조를 먼저 한다. 계정이 다르면 ARN 이 안 맞는 게 당연하므로
-            # dryrun_not_matched 로 남기면 "이미 조치됨"으로 오독된다
+            # already_fixed 로 남기면 "이미 조치됨"으로 오독된다
             if scanned_account and finding_account and finding_account != scanned_account:
                 finding["status"] = "account_mismatch"
                 finding["reason"] = (
@@ -384,10 +468,10 @@ def execute_policies(findings_by_policy):
             remediation = finding.get("remediation") or {}
             if remediation.get("blast_radius") == "account":
                 if resources:
-                    finding["status"] = "dryrun_matched"
+                    finding["status"] = "still_open"
                     finding["reason"] = f"계정 단위 판정 - 대상 리소스 {len(resources)}건"
                 else:
-                    finding["status"] = "dryrun_not_matched"
+                    finding["status"] = "already_fixed"
                     finding["reason"] = "계정 단위 판정 - 대상 리소스 없음"
                 continue
 
@@ -403,10 +487,10 @@ def execute_policies(findings_by_policy):
                 finding["status"] = "arn_not_found"
                 finding["reason"] = "finding 에 resource_uid 가 없어 대조 불가"
             elif resource_uid in matched_arns:
-                finding["status"] = "dryrun_matched"
+                finding["status"] = "still_open"
                 finding["reason"] = None
             else:
-                finding["status"] = "dryrun_not_matched"
+                finding["status"] = "already_fixed"
                 finding["reason"] = "dryrun 결과에 해당 리소스가 없음"
 
 
