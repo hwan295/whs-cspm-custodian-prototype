@@ -26,13 +26,32 @@ pip install pyyaml c7n
 ### 실행
 
 ```bash
-python main.py <prowler-output.ocsf.json>
+python -m response <prowler-output.ocsf.json>
 ```
 
 동봉된 샘플로 확인:
 
 ```bash
-python main.py sample-findings.ocsf.json
+python -m response sample-findings.ocsf.json
+```
+
+**라이브러리로 부를 수도 있다.** 통합 파이프라인에서 findings 를 파일이 아니라
+DB·API 로 받는 경우를 위해 진입점을 둘로 나눠 두었다.
+
+```python
+from response import run, run_raw
+
+records = run(findings)          # 이미 파싱된 dict 리스트
+records = run_raw(raw_findings)  # OCSF 원본 리스트
+```
+
+`run()` 은 파일을 읽지도 로그를 저장하지도 않는다. 결과 레코드만 돌려주므로
+입력과 출력을 호출부가 정할 수 있다.
+
+**산출물 위치**는 실행한 디렉토리 기준이다. `CSPM_WORK_DIR` 로 바꿀 수 있다.
+
+```bash
+CSPM_WORK_DIR=/tmp/cspm python -m response findings.json   # /tmp/cspm/out, /tmp/cspm/logs
 ```
 
 `sample-findings.ocsf.json` 은 더미 계정(`123456789012`)과 더미 버킷명으로 되어 있다.
@@ -80,17 +99,32 @@ prowler aws --output-formats json-ocsf --services s3
 
 ```
 cspm/
-├── policies/                      # 정책 파일당 정책 1개 (매핑된 정책만 골라 실행하기 위함)
-│   ├── s3-no-secure-transport.yml   # HTTPS 강제 정책이 없는 버킷
-│   ├── s3-no-kms-encryption.yml     # SSE-KMS 기본 암호화가 없는 버킷
-│   └── s3-account-public-block.yml  # 퍼블릭 액세스 차단이 완전하지 않은 버킷
-├── mapping.yml                    # event_code -> 정책 이름 매핑
-├── main.py                        # 파서 -> 매핑 -> 실행 -> 로그
+├── response/                      # 통합 시 이 폴더를 통째로 옮긴다
+│   ├── __init__.py                #   run · run_raw 를 공개
+│   ├── __main__.py                #   python -m response 진입
+│   ├── run.py                     #   파이프라인 조립 + CLI
+│   ├── config.py                  #   경로·상수
+│   ├── findings.py                #   #1 파싱 (입력 구조에 의존하는 유일한 곳)
+│   ├── mapping.py                 #   #2 매핑 조회 + mode 판정
+│   ├── scoping.py                 #   실행 범위 제한 (실조치 안전장치)
+│   ├── executor.py                #   #6 Custodian 실행 + 대조
+│   ├── reporter.py                #   #7 조치 로그
+│   ├── mapping.yml                #   event_code -> 정책 이름 매핑
+│   └── policies/                  #   정책 파일당 정책 1개
+│       ├── s3-no-secure-transport.yml   # HTTPS 강제 정책이 없는 버킷
+│       ├── s3-no-kms-encryption.yml     # SSE-KMS 기본 암호화가 없는 버킷
+│       └── s3-account-public-block.yml  # 퍼블릭 액세스 차단이 완전하지 않은 버킷
 ├── sample-findings.ocsf.json      # 동작 확인용 샘플 findings
 ├── README.md
 ├── out/                           # Custodian dryrun 결과 (자동 생성)
 └── logs/                          # 조치 로그 (자동 생성)
 ```
+
+**설정(`mapping.yml`, `policies/`)이 패키지 안에 있는 이유** — 코드와 짝이라 함께
+움직여야 한다. 떨어뜨리면 통합할 때 한쪽만 옮겨져 매핑이 깨진다.
+
+**산출물(`out/`, `logs/`)이 패키지 밖인 이유** — 실행할 때마다 생기는 것이라
+코드 디렉토리를 더럽히면 안 되고, 통합 시 오케스트레이터가 한곳에 모을 수 있어야 한다.
 
 ### 정책 파일
 

@@ -23,7 +23,10 @@
 #                 조치 후 반영까지 걸리는 시간. 조치 후 재확인 타이밍에 쓴다
 #   reversible    되돌릴 수 있는지
 #   cost_impact   none / low / high
-#   risk_note     자동 조치라도 남아 있는 위험. 로그에 함께 남는다
+#   risk_note     왜 자동으로 처리하지 않는지 (판정 근거). 로그에 함께 남는다
+#   guide         mode=manual 일 때 사람이 무엇을 해야 하는지 (조치 안내).
+#                 비워두면 Prowler 의 remediation.desc 를 그대로 쓴다.
+#                 우리 환경 특수사항이 있을 때만 적는다
 #   scope_key     실행 범위를 좁힐 때 쓸 Custodian 리소스 필드
 #                 (S3 는 Name, EC2 는 InstanceId). ARN 의 마지막 조각과 대조한다.
 #                 없으면 계정 전체가 대상이 되므로 실조치 단계에서는 반드시 지정할 것
