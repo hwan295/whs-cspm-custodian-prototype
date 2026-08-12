@@ -1,13 +1,16 @@
-# Prowler 의 metadata.event_code 를 Cloud Custodian 정책 이름에 연결한다.
+# Prowler 의 metadata.event_code 를 Cloud Custodian 정책에 연결한다.
 # Custodian 은 findings 를 입력으로 받지 않고 AWS 를 직접 조회하므로,
 # 두 도구의 유일한 연결점이 이 매핑이다.
 #
-# policy: policies/<이름>.yml 의 정책 이름 (조치 도구가 없으면 null)
+# policy: 생략하면 check_id 의 언더바를 하이픈으로 바꾼 이름을 쓴다.
+#           s3_bucket_kms_encryption -> s3-bucket-kms-encryption
+#         이름이 규칙과 다르면 명시하고, 조치 도구가 없으면 null 을 적는다.
+#         정책은 서비스별 파일에 모여 있다 (policies/s3.yml 등).
 #
 # remediation: 조치의 "위험도"를 기술한다. severity(문제의 심각도)와는 다른 축이다.
 #   mode          auto / approve / manual / not_supported
 #                 - auto          : 바로 dryrun 실행
-#                 - approve       : 승인 큐에 넣는다 (승인 흐름 구현 전까지는 기록만)
+#                 - approve       : 실행 후 사람에게 건별로 확인
 #                 - manual        : 사람이 직접 처리. 도구는 안내만 한다
 #                 - not_supported : 조치 도구 자체가 없다
 #   disruption    none / restart / recreate / traffic / access / destructive
@@ -38,7 +41,6 @@
 #   recreate / access / destructive -> manual
 
 s3_bucket_secure_transport_policy:
-  policy: s3-no-secure-transport
   remediation:
     mode: auto
     disruption: none
@@ -50,7 +52,6 @@ s3_bucket_secure_transport_policy:
     scope_key: Name
 
 s3_bucket_kms_encryption:
-  policy: s3-no-kms-encryption
   remediation:
     # KMS 는 요청마다 과금되므로(판정 기준 10단계) 사람이 확인한 뒤 실행한다
     mode: approve
@@ -63,7 +64,6 @@ s3_bucket_kms_encryption:
     scope_key: Name
 
 s3_account_level_public_access_blocks:
-  policy: s3-account-public-block
   remediation:
     # 계정 전체에 한 번에 적용되므로(판정 기준 9단계) 사람이 확인한 뒤 실행한다
     mode: approve
@@ -75,7 +75,7 @@ s3_account_level_public_access_blocks:
     risk_note: "정적 웹사이트 호스팅 버킷이 있으면 사이트가 내려간다"
 
 s3_bucket_no_mfa_delete:
-  policy: null
+  policy: null          # 조치 도구가 없다
   remediation:
     mode: not_supported
     disruption: none
@@ -86,7 +86,7 @@ s3_bucket_no_mfa_delete:
     risk_note: "루트 자격증명이 필요해 Custodian 으로 조치할 수 없다"
 
 # 조치 도구는 있지만 위험해서 사람이 처리해야 하는 예시.
-# policy 가 null 이므로 실행되지 않고 승인/안내 대상으로만 기록된다.
+# policy 가 null 이므로 실행되지 않고 안내 대상으로만 기록된다.
 rds_instance_encryption:
   policy: null
   remediation:

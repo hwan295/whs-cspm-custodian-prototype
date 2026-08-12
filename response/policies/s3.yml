@@ -1,0 +1,90 @@
+# S3 정책 모음
+#
+# 파일 하나에 서비스 하나. 정책이 늘어도 파일이 흩어지지 않고, Custodian 이
+# 같은 리소스 타입의 조회 결과를 공유할 수 있다.
+#
+# 정책 이름은 Prowler check_id 의 언더바를 하이픈으로 바꾼 것이다.
+#     s3_bucket_kms_encryption  ->  s3-bucket-kms-encryption
+# 이 규칙 덕분에 mapping.yml 에서 policy 를 생략해도 코드가 찾아낸다.
+#
+# metadata 는 Custodian 이 지원하는 정식 필드다. 여기에 출처 체크와 조치 요약을
+# 남겨두면 정책 파일만 봐도 무엇을 왜 하는지 알 수 있고, 코드가 파싱해
+# 매핑과 어긋나는지 검증할 수 있다.
+#
+# 실행은 항상 --dryrun 이라 actions 가 있어도 실제 변경은 일어나지 않는다.
+
+policies:
+
+  - name: s3-bucket-secure-transport-policy
+    resource: aws.s3
+    description: HTTPS 를 강제하는 버킷 정책이 없는 버킷
+    metadata:
+      prowler_check: s3_bucket_secure_transport_policy
+      remediation_summary: 버킷 정책에 SecureTransport=false 를 막는 Deny 구문을 추가한다
+      note: |
+        remove:"*" 를 쓰지 않는다. 기존 구문을 전부 지우면 정당한 접근 허용까지
+        날아가므로 Deny 구문만 얹는다.
+    filters:
+      - not:
+        - type: has-statement
+          statements:
+            - Effect: Deny
+              Action: "s3:*"
+              Condition:
+                Bool:
+                  "aws:SecureTransport": "false"
+    actions:
+      - type: set-statements
+        statements:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Action: "s3:*"
+            Principal:
+              AWS: "*"
+            Resource:
+              - "arn:aws:s3:::{bucket_name}"
+              - "arn:aws:s3:::{bucket_name}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": "false"
+
+  - name: s3-bucket-kms-encryption
+    resource: aws.s3
+    description: SSE-KMS 기본 암호화가 설정되지 않은 버킷
+    metadata:
+      prowler_check: s3_bucket_kms_encryption
+      remediation_summary: 기본 암호화를 SSE-KMS 로 활성화한다
+      note: |
+        bucket-encryption 필터는 조건에 맞는 버킷을 남기므로 not 으로 감싼다.
+        암호화가 아예 없는 버킷과 AES256 로만 암호화된 버킷이 모두 걸린다.
+        key 를 지정하면 버킷마다 값이 달라질 수 있어 판정 기준 4단계를 다시 봐야 한다.
+    filters:
+      - not:
+        - type: bucket-encryption
+          state: true
+          crypto: aws:kms
+    actions:
+      - type: set-bucket-encryption
+        crypto: aws:kms
+        enabled: true
+
+  - name: s3-account-level-public-access-blocks
+    resource: aws.s3
+    description: 퍼블릭 액세스 차단 4개 항목이 모두 켜져 있지 않은 버킷
+    metadata:
+      prowler_check: s3_account_level_public_access_blocks
+      remediation_summary: 퍼블릭 액세스 차단 4개 항목을 모두 활성화한다
+      note: |
+        이 필터는 aws.s3(버킷 단위)다. Prowler 의 해당 체크는 계정 단위 설정을
+        보므로 판정 단위가 다르다. 계정 단위로 맞추려면 resource 를 aws.account,
+        필터를 s3-public-block, 액션을 set-s3-public-block 으로 바꿔야 한다.
+        (README 의 "알려진 차이점" 참고)
+    filters:
+      - type: check-public-block
+    actions:
+      - type: set-public-block
+        state: true
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true

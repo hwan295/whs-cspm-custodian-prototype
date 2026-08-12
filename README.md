@@ -151,10 +151,8 @@ cspm/
 │   ├── reporter.py                #   #8 조치 로그
 │   ├── mapping.yml                #   event_code -> 정책 이름 매핑
 │   ├── scope.example.yml          #   대상 계정·리전 예시 (실제 값은 scope.yml)
-│   └── policies/                  #   정책 파일당 정책 1개
-│       ├── s3-no-secure-transport.yml   # HTTPS 강제 정책이 없는 버킷
-│       ├── s3-no-kms-encryption.yml     # SSE-KMS 기본 암호화가 없는 버킷
-│       └── s3-account-public-block.yml  # 퍼블릭 액세스 차단이 완전하지 않은 버킷
+│   └── policies/                  #   서비스별로 한 파일
+│       └── s3.yml                 #     S3 정책 3종
 ├── sample-findings.ocsf.json      # 동작 확인용 샘플 findings
 ├── README.md
 ├── out/                           # Custodian dryrun 결과 (자동 생성)
@@ -169,17 +167,50 @@ cspm/
 
 ### 정책 파일
 
+**서비스별로 한 파일에 모은다.** `policies/s3.yml` 에 S3 정책이 전부 들어 있다.
+정책이 늘어도 파일이 흩어지지 않고, 같은 리소스 타입을 한 번에 실행할 때
+조회 결과를 공유할 수 있다.
+
 정책은 **필터(무엇이 위반인가) + 액션(어떻게 고치는가)** 로 이뤄진다.
 액션이 있지만 **실행은 항상 `--dryrun` 이라 실제 변경은 일어나지 않는다.**
-Custodian 이 "무엇을 할 계획인지"만 출력한다.
 
-문법은 아래 명령으로 확인했고, 3개 모두 `custodian validate` 를 통과한다.
+#### 이름 규칙 — check_id 의 언더바를 하이픈으로
+
+```
+s3_bucket_kms_encryption   (Prowler check_id)
+s3-bucket-kms-encryption   (정책 이름)
+```
+
+이 규칙 덕분에 `mapping.yml` 에서 `policy` 를 **생략해도 코드가 찾아낸다.**
+이름이 어긋나 매핑이 깨지는 실수가 줄어든다. 규칙과 다른 이름을 쓸 때만 명시한다.
+
+정책 이름의 첫 조각이 곧 파일 이름이다. `s3-bucket-kms-encryption` → `policies/s3.yml`
+
+#### metadata — 정책만 봐도 알 수 있게
+
+Custodian 이 지원하는 정식 필드라 `validate` 를 통과하고 코드로 파싱할 수 있다.
+
+```yaml
+  - name: s3-bucket-kms-encryption
+    resource: aws.s3
+    description: SSE-KMS 기본 암호화가 설정되지 않은 버킷
+    metadata:
+      prowler_check: s3_bucket_kms_encryption      # 출처 체크
+      remediation_summary: 기본 암호화를 SSE-KMS 로 활성화한다
+      note: |
+        판단 근거나 주의사항
+```
+
+`mapping.yml` 에 흩어져 있는 정보를 정책 옆에도 남겨, 정책 파일만 열어도
+무엇을 왜 하는지 알 수 있다.
+
+#### 액션 문법 확인
 
 ```bash
-custodian schema aws.s3.filters.bucket-encryption
 custodian schema aws.s3.actions.set-bucket-encryption
 custodian schema aws.s3.actions.set-statements
 custodian schema aws.s3.actions.set-public-block
+custodian validate response/policies/s3.yml
 ```
 
 `set-statements` 에서 `remove: "*"` 를 쓰지 않는다. 기존 구문을 전부 지우면
@@ -259,7 +290,7 @@ not_supported   → 실행 안 함. reason 에 불가 사유
 | | |
 |---|---|
 | 입력 | 정책 이름 + 대상 finding 묶음 |
-| 출력 | `out/_scoped/<정책>.yml` |
+| 출력 | `out/_scoped/<정책>.yml` (정책 하나만 담긴 문서) |
 
 **Custodian 은 정책을 계정 전체에 대해 돌린다.** 원본 정책을 그대로 실행하면
 findings 에 없는 리소스까지 대상이 된다. dryrun 이면 무해하지만 실조치를 켜는 순간
@@ -474,12 +505,13 @@ IAM 변경은 수십 초, CloudFront 는 수 분 걸려서, 조치 직후 재확
 
 ## 매핑 추가하기
 
-새 Prowler 체크를 붙이려면 `mapping.yml` 에 항목을 추가하고, `policy` 이름과
-같은 이름의 파일을 `policies/` 에 만든다.
+새 Prowler 체크를 붙이려면 `mapping.yml` 에 항목을 추가하고,
+해당 서비스 파일(`policies/<서비스>.yml`)에 정책을 넣는다.
 
 ```yaml
 <prowler 의 metadata.event_code>:
-  policy: <policies/ 아래 정책 이름>   # 조치 도구가 없으면 null
+  # policy 는 생략한다 - check_id 의 언더바를 하이픈으로 바꾼 이름을 자동으로 쓴다.
+  # 조치 도구가 없을 때만 policy: null 을 명시한다
   remediation:
     mode: auto                 # auto / approve / manual / not_supported
     disruption: none           # none / restart / recreate / traffic / access / destructive

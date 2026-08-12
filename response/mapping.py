@@ -47,6 +47,18 @@ MODE_STATUS = {
 }
 
 
+def check_id_to_policy(check_id):
+    """Prowler check_id 를 정책 이름으로 바꾼다.
+
+        s3_bucket_kms_encryption  ->  s3-bucket-kms-encryption
+
+    언더바만 하이픈으로 바꾼다. 이 규칙 덕분에 mapping.yml 에서 policy 를
+    생략해도 정책을 찾을 수 있고, 이름이 어긋나 매핑이 깨지는 실수가 줄어든다.
+    이름이 규칙과 다른 정책은 mapping.yml 에 policy 를 명시하면 된다.
+    """
+    return check_id.replace("_", "-") if check_id else None
+
+
 def build_reason(finding, remediation, mode):
     """조치하지 않는 건에 담을 사유를 만든다.
 
@@ -95,7 +107,13 @@ def resolve_policy(finding, mapping):
             return None, "unmapped", f"알 수 없는 mode: {mode}", remediation
         return None, status, build_reason(finding, remediation, mode), remediation
 
-    policy_name = entry.get("policy")
+    # policy 를 적어두면 그걸 쓰고, 없으면 check_id 를 변환해 찾는다.
+    # policy: null 을 명시한 경우(조치 도구 없음)와 키를 생략한 경우를 구분한다
+    if "policy" in entry:
+        policy_name = entry["policy"]
+    else:
+        policy_name = check_id_to_policy(check_id)
+
     if not policy_name:
         return None, "unmapped", f"mode={mode} 지만 policy 가 비어 있음", remediation
 
