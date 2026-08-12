@@ -12,6 +12,11 @@ PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 MAPPING_PATH = os.path.join(PACKAGE_DIR, "mapping.yml")
 POLICY_DIR = os.path.join(PACKAGE_DIR, "policies")
 
+# 조치 대상 범위. 실제 계정 ID 가 들어가는 scope.yml 은 git 에서 제외한다.
+# 환경변수(CSPM_SCOPE_ACCOUNTS / CSPM_SCOPE_REGIONS)가 파일보다 우선한다.
+SCOPE_PATH = os.path.join(PACKAGE_DIR, "scope.yml")
+SCOPE_EXAMPLE_PATH = os.path.join(PACKAGE_DIR, "scope.example.yml")
+
 # 산출물 - 실행 위치 기준. CSPM_WORK_DIR 로 재지정할 수 있다
 WORK_DIR = os.environ.get("CSPM_WORK_DIR") or os.getcwd()
 OUT_DIR = os.path.join(WORK_DIR, "out")

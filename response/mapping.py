@@ -35,26 +35,29 @@ DEFAULT_REMEDIATION = {
     "scope_key": None,
 }
 
-# mode 별로 실행 전에 확정되는 status.
-# auto 만 실제로 Custodian 을 돌리고, 나머지는 여기서 끝난다
+# Custodian 을 실제로 돌리는 mode.
+# approve 도 돌린다 - 무엇을 고칠지 보여줘야 사람이 승인 여부를 판단할 수 있다.
+# 실행 후 대조까지 마치고 executor 가 프롬프트를 띄운다.
+EXECUTABLE_MODES = ("auto", "approve")
+
+# 실행하지 않는 mode 는 여기서 status 가 확정된다
 MODE_STATUS = {
     "not_supported": "not_supported",
     "manual": "manual_required",
-    "approve": "approval_pending",
 }
 
 
 def build_reason(finding, remediation, mode):
-    """실행하지 않는 건에 담을 사유를 만든다.
+    """조치하지 않는 건에 담을 사유를 만든다.
 
     mode 에 따라 담는 내용이 다르다.
-      manual        -> 사람이 무엇을 해야 하는지 (조치 안내)
-      그 밖         -> 왜 자동으로 처리하지 않는지 (판정 근거)
+      manual · approve 거부  -> 사람이 무엇을 해야 하는지 (조치 안내)
+      그 밖                  -> 왜 자동으로 처리하지 않는지 (판정 근거)
 
     조치 안내는 mapping.yml 의 guide 를 우선하고, 없으면 Prowler 가 준
     remediation.desc 를 쓴다. 체크마다 이미 안내가 딸려오므로 중복해서 적지 않는다.
     """
-    if mode == "manual":
+    if mode in ("manual", "approve"):
         return (
             remediation.get("guide")
             or finding.get("remediation_desc")
@@ -85,7 +88,7 @@ def resolve_policy(finding, mapping):
     remediation.update(entry.get("remediation") or {})
 
     mode = remediation.get("mode")
-    if mode != "auto":
+    if mode not in EXECUTABLE_MODES:
         status = MODE_STATUS.get(mode)
         if status is None:
             # 알 수 없는 mode 는 실행하지 않는다
@@ -94,7 +97,7 @@ def resolve_policy(finding, mapping):
 
     policy_name = entry.get("policy")
     if not policy_name:
-        return None, "unmapped", "mode=auto 지만 policy 가 비어 있음", remediation
+        return None, "unmapped", f"mode={mode} 지만 policy 가 비어 있음", remediation
 
     return policy_name, None, None, remediation
 

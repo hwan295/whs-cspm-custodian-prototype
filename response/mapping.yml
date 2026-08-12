@@ -64,7 +64,8 @@ s3_bucket_kms_encryption:
 s3_account_level_public_access_blocks:
   policy: s3-account-public-block
   remediation:
-    mode: auto
+    # 계정 전체에 한 번에 적용되므로(판정 기준 9단계) 사람이 확인한 뒤 실행한다
+    mode: approve
     disruption: none
     blast_radius: account
     propagation_delay: immediate

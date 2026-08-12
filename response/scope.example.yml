@@ -1,0 +1,19 @@
+# 조치 대상 범위 - 예시 파일
+#
+# 이 파일을 scope.yml 로 복사해 실제 값을 넣는다.
+#
+#     cp response/scope.example.yml response/scope.yml
+#
+# 환경변수를 쓰면 파일 없이도 된다. 환경변수가 파일보다 우선한다.
+#
+#     export CSPM_SCOPE_ACCOUNTS=123456789012,210987654321
+#     export CSPM_SCOPE_REGIONS=ap-northeast-2
+#
+# 여기에 없는 계정·리전의 finding 은 status=out_of_scope 로 기록되고 처리되지 않는다.
+# 목록을 비워두면 그 항목은 검사하지 않는다 (accounts 만 쓰고 regions 는 비우는 식).
+
+accounts:
+  - "123456789012"
+
+regions:
+  - ap-northeast-2

@@ -13,13 +13,19 @@ import json
 import os
 import subprocess
 
+from .approval import confirm, print_guidance
 from .config import ARN_FIELDS, CUSTODIAN_TIMEOUT, OUT_DIR, WORK_DIR
 from .findings import dig
+from .mapping import build_reason
 from .scoping import build_scoped_policy
 
 
-def run_custodian(policy_path, policy_name):
-    """Custodian 을 dryrun 으로 1회 실행한다.
+def run_custodian(policy_path, policy_name, dry_run=True):
+    """Custodian 을 1회 실행한다.
+
+    dry_run=False 로 부르면 **실제로 AWS 리소스가 바뀐다.**
+    지금은 호출부가 항상 True 를 넘긴다. 실조치를 켜려면 이 인자만 바꾸면 되지만,
+    조치 전 스냅샷(B1)과 롤백(B2)이 붙기 전에는 False 로 부르지 않는다.
 
     반환: (성공여부, 에러메시지)
     실패해도 예외를 던지지 않는다. 호출부가 다음 정책으로 계속 진행할 수 있어야 한다.
@@ -27,7 +33,9 @@ def run_custodian(policy_path, policy_name):
     if not os.path.isfile(policy_path):
         return False, f"정책 파일이 없음: {policy_path}"
 
-    cmd = ["custodian", "run", "-s", OUT_DIR, policy_path, "--dryrun"]
+    cmd = ["custodian", "run", "-s", OUT_DIR, policy_path]
+    if dry_run:
+        cmd.append("--dryrun")
     print(f"      실행: {' '.join(cmd)}")
 
     try:
@@ -215,3 +223,44 @@ def execute_policies(findings_by_policy):
             print(f"      조회 계정 {scanned_account}")
 
         verify_findings(findings, resources, scanned_account)
+        request_approval(policy_name, findings)
+
+
+def request_approval(policy_name, findings):
+    """mode=approve 인 건에 대해 승인을 묻고 결과를 status 에 반영한다.
+
+    still_open 인 건만 묻는다. 이미 해소됐거나 대조가 안 된 건은 물을 이유가 없다.
+
+    승인(approved)해도 지금은 AWS 가 바뀌지 않는다. dryrun 으로만 돌기 때문이다.
+    실조치를 켜면 이 지점에서 run_custodian(dry_run=False) 를 한 번 더 부르게 된다.
+    """
+    mode = (findings[0].get("remediation") or {}).get("mode") if findings else None
+    if mode != "approve":
+        return
+
+    pending = [f for f in findings if f.get("status") == "still_open"]
+    if not pending:
+        return
+
+    answer = confirm(policy_name, pending)
+
+    if answer is None:
+        for finding in pending:
+            finding["status"] = "approval_pending"
+            finding["reason"] = "승인 대기 - 비대화형 실행이라 묻지 못함"
+        return
+
+    if answer:
+        for finding in pending:
+            finding["status"] = "approved"
+            finding["reason"] = "승인됨 - dryrun 이라 실제 변경은 없음"
+        print(f"      승인 {len(pending)}건 (dryrun 이므로 실제 변경 없음)")
+        return
+
+    # 거부 - 사람이 직접 조치할 수 있도록 안내를 남긴다
+    for finding in pending:
+        remediation = finding.get("remediation") or {}
+        finding["status"] = "declined"
+        finding["reason"] = build_reason(finding, remediation, "approve")
+    print(f"      거부 {len(pending)}건 - 조치 방법:")
+    print_guidance(pending)

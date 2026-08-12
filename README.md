@@ -54,20 +54,58 @@ records = run_raw(raw_findings)  # OCSF 원본 리스트
 CSPM_WORK_DIR=/tmp/cspm python -m response findings.json   # /tmp/cspm/out, /tmp/cspm/logs
 ```
 
-`sample-findings.ocsf.json` 은 더미 계정(`123456789012`)과 더미 버킷명으로 되어 있다.
-그대로 실행하면 파이프라인은 끝까지 돌지만 **전부 `account_mismatch`** 로 나온다
-(계정 대조가 작동한다는 확인은 된다). 실제 대조까지 보려면 `cloud.account.uid` 와
-`resources[0].uid` 를 본인 계정·버킷으로 바꾸거나, Prowler 를 직접 돌려 나온
-findings 를 넣으면 된다.
+### 조치 대상 범위 설정
 
-실행하면 `logs/actions-<타임스탬프>.json` 이 생기고, 콘솔에는 status 별 건수가 요약된다.
+실행 전에 **어느 계정·리전을 대상으로 할지** 정해야 한다. 범위 밖 finding 은
+`out_of_scope` 로 기록되고 처리되지 않는다.
+
+```bash
+cp response/scope.example.yml response/scope.yml    # 실제 계정을 여기에
+```
+
+`scope.yml` 은 **git 에서 제외된다.** 환경변수를 쓰면 파일 없이도 된다.
+
+```bash
+export CSPM_SCOPE_ACCOUNTS=123456789012,210987654321
+export CSPM_SCOPE_REGIONS=ap-northeast-2
+```
+
+우선순위는 **환경변수 > `scope.yml` > `scope.example.yml`** 이고,
+어느 출처를 썼는지 실행할 때 콘솔에 표시된다.
+
+### 승인 프롬프트
+
+`mode: approve` 인 체크는 dryrun 으로 대상을 확인한 뒤 물어본다.
+
+```
+  ── 승인 요청: s3-account-public-block ──
+     · arn:aws:s3:::example-bucket
+     주의: 정적 웹사이트 호스팅 버킷이 있으면 사이트가 내려간다
+  1건을 조치하시겠습니까? (y/N)
+```
+
+파이프·CI 처럼 **비대화형이면 묻지 않고** `approval_pending` 으로 남긴다.
+일괄 처리하려면 플래그를 쓴다.
+
+```bash
+python -m response --yes findings.json    # 전부 승인
+python -m response --no  findings.json    # 전부 거부 (조치 방법 출력)
+```
+
+### 실행 결과
+
+`sample-findings.ocsf.json` 은 더미 계정(`123456789012`)으로 되어 있다.
+`scope.yml` 의 계정이 다르면 **전부 `out_of_scope`** 로 나온다.
+실제 판정까지 보려면 계정을 맞추거나 Prowler 를 직접 돌려 나온 findings 를 넣는다.
 
 ```
 [1/4] findings 파싱: sample-findings.ocsf.json
       전체 finding 7건
       FAIL 6건 추출
+      범위 [scope.yml] 계정 123456789012 / 리전 ap-northeast-2
 [2/4] 매핑 로드: .../mapping.yml
-      매핑 항목 4건
+      매핑 항목 5건
+      [주의] s3_bucket_kms_encryption: 신규 객체만 영향. KMS 요청 비용이 발생한다
       실행 대상 4건 / 제외 2건
 [3/4] Custodian dryrun 실행: 정책 3개
   - s3-no-secure-transport (finding 2건)
@@ -75,14 +113,14 @@ findings 를 넣으면 된다.
       dryrun 대상 리소스 2건 / ARN 확보 2건
       조회 계정 123456789012
   ...
-[4/4] 조치 로그 저장: .../logs/actions-20260805-151011.json
+[4/4] 조치 로그 저장: .../logs/actions-20260812-093049.json
 
 === 요약 ===
-  still_open                1건
-  already_fixed             1건
+  still_open                2건
+  approval_pending          1건
   not_supported             1건
   unmapped                  1건
-  합계                      4건
+  합계                      5건
 ```
 
 ### Prowler 로 findings 만들기
@@ -91,7 +129,7 @@ findings 를 넣으면 된다.
 prowler aws --output-formats json-ocsf --services s3
 ```
 
-`output/` 아래 생기는 `*.ocsf.json` 을 `main.py` 인자로 넘기면 된다.
+`output/` 아래 생기는 `*.ocsf.json` 을 인자로 넘기면 된다.
 
 ---
 
@@ -104,12 +142,15 @@ cspm/
 │   ├── __main__.py                #   python -m response 진입
 │   ├── run.py                     #   파이프라인 조립 + CLI
 │   ├── config.py                  #   경로·상수
-│   ├── findings.py                #   #1 파싱 (입력 구조에 의존하는 유일한 곳)
-│   ├── mapping.py                 #   #2 매핑 조회 + mode 판정
-│   ├── scoping.py                 #   실행 범위 제한 (실조치 안전장치)
-│   ├── executor.py                #   #6 Custodian 실행 + 대조
-│   ├── reporter.py                #   #7 조치 로그
+│   ├── findings.py                #   #2 파싱 (입력 구조에 의존하는 유일한 곳)
+│   ├── scope.py                   #   #1 조치 대상 범위 필터
+│   ├── mapping.py                 #   #3 매핑 조회 + mode 판정
+│   ├── scoping.py                 #   #4 실행 범위 제한 (실조치 안전장치)
+│   ├── executor.py                #   #5·6 Custodian 실행 + 대조
+│   ├── approval.py                #   #7 승인 프롬프트
+│   ├── reporter.py                #   #8 조치 로그
 │   ├── mapping.yml                #   event_code -> 정책 이름 매핑
+│   ├── scope.example.yml          #   대상 계정·리전 예시 (실제 값은 scope.yml)
 │   └── policies/                  #   정책 파일당 정책 1개
 │       ├── s3-no-secure-transport.yml   # HTTPS 강제 정책이 없는 버킷
 │       ├── s3-no-kms-encryption.yml     # SSE-KMS 기본 암호화가 없는 버킷
@@ -128,58 +169,110 @@ cspm/
 
 ### 정책 파일
 
-**모든 정책은 필터만 있고 actions 블록이 없다.** dryrun 으로 "걸리는 리소스"만
-확인하는 단계이며, 실제 조치는 이 프로토타입의 범위가 아니다.
+정책은 **필터(무엇이 위반인가) + 액션(어떻게 고치는가)** 로 이뤄진다.
+액션이 있지만 **실행은 항상 `--dryrun` 이라 실제 변경은 일어나지 않는다.**
+Custodian 이 "무엇을 할 계획인지"만 출력한다.
 
 문법은 아래 명령으로 확인했고, 3개 모두 `custodian validate` 를 통과한다.
 
 ```bash
 custodian schema aws.s3.filters.bucket-encryption
-custodian schema aws.s3.filters.check-public-block
+custodian schema aws.s3.actions.set-bucket-encryption
+custodian schema aws.s3.actions.set-statements
+custodian schema aws.s3.actions.set-public-block
 ```
+
+`set-statements` 에서 `remove: "*"` 를 쓰지 않는다. 기존 구문을 전부 지우면
+정당한 접근 허용까지 날아가므로 Deny 구문만 얹는다.
 
 ---
 
-## 처리 흐름
+## 동작 방식
 
-| 단계 | 티켓 | 하는 일 |
-|---|---|---|
-| 파서 | #1 | OCSF JSON 을 읽어 `status_code == "FAIL"` 만 남기고 필요한 필드 추출 |
-| 매핑 조회 | #2 | `check_id`(= `metadata.event_code`)로 `mapping.yml` 조회 |
-| 실행기 | #6 | 정책당 1회 `custodian run --dryrun`, 결과와 finding 대조 |
-| 로그 | #7 | `logs/actions-<타임스탬프>.json` 저장 + 콘솔 요약 |
+한 번 실행하면 아래 순서로 돈다. **각 단계는 앞 단계의 출력만 보고 판단한다.**
 
-### 파서가 추출하는 필드
+```
+① 범위 필터 → ② 파싱 → ③ 매핑 → ④ 범위 제한 → ⑤ 실행 → ⑥ 대조 → ⑦ 승인 → ⑧ 로그
+```
 
-| 키 | OCSF 경로 |
+### ① 범위 필터 — 우리 계정인가
+
+| | |
 |---|---|
-| finding_uid | `finding_info.uid` |
-| check_id | `metadata.event_code` |
-| severity | `severity` |
-| status_code | `status_code` |
-| resource_uid | `resources[0].uid` |
-| resource_type | `resources[0].type` |
-| service | `resources[0].group.name` |
-| region | `resources[0].region` |
-| account_uid | `cloud.account.uid` |
-| scan_time | `time_dt` |
+| 입력 | 파싱된 finding 목록 |
+| 출력 | 대상 계정·리전의 finding 만 |
+
+대상이 아닌 건은 `out_of_scope` 로 기록하고 이후 단계를 건너뛴다.
+설정은 **환경변수 → `scope.yml` → `scope.example.yml`** 순으로 읽는다.
+
+```
+      범위 [scope.yml] 계정 123456789012 / 리전 ap-northeast-2
+      범위 밖 2건 제외
+```
+
+계정 ID 는 코드에 하드코딩하지 않는다. 실제 값이 든 `scope.yml` 은 git 에서 제외되고,
+저장소에는 더미가 든 `scope.example.yml` 만 올라간다.
+
+### ② 파싱 — 무엇을 꺼내는가
+
+| | |
+|---|---|
+| 입력 | Prowler JSON-OCSF |
+| 출력 | 평평한 dict 리스트 |
+
+`status_code == "FAIL"` 인 건만 남기고 12개 필드를 뽑는다.
+**입력 구조에 의존하는 곳은 여기뿐**이라, 스캔 파트의 형식이 바뀌면
+`FIELD_PATHS` 만 갈아끼우면 된다.
+
+| 내부 키 | OCSF 경로 |
+|---|---|
+| `check_id` | `metadata.event_code` |
+| `resource_uid` | `resources[0].uid` |
+| `account_uid` | `cloud.account.uid` |
+| `finding_uid` | `finding_info.uid` |
+| `severity` · `region` · `resource_type` · `service` · `scan_time` | 각 대응 경로 |
+| `remediation_desc` · `remediation_refs` | `remediation.desc` · `remediation.references` |
 
 없는 필드는 `None` 으로 두고 경고를 출력한다. 파싱 실패로 중단하지 않는다.
+`remediation_*` 은 선택 필드라 없어도 경고하지 않는다.
 
-### 실행 범위 제한 — 실행 전에 대상을 좁힌다
+### ③ 매핑 — 어떻게 조치할 것인가
+
+| | |
+|---|---|
+| 입력 | `check_id` |
+| 출력 | 정책 이름 + 조치 방식(`mode`) |
+
+`mapping.yml` 을 조회해 `mode` 를 확정한다. **`auto` 와 `approve` 만 다음 단계로
+넘어가고**, 나머지는 여기서 상태가 확정된다.
+
+```
+auto            → 실행
+approve         → 실행 후 사람에게 확인
+manual          → 실행 안 함. reason 에 조치 안내
+not_supported   → 실행 안 함. reason 에 불가 사유
+매핑에 없음      → unmapped
+```
+
+### ④ 범위 제한 — 대상 리소스만 남긴다
+
+| | |
+|---|---|
+| 입력 | 정책 이름 + 대상 finding 묶음 |
+| 출력 | `out/_scoped/<정책>.yml` |
 
 **Custodian 은 정책을 계정 전체에 대해 돌린다.** 원본 정책을 그대로 실행하면
-findings 에 없는 리소스까지 대상이 된다. dryrun 동안은 무해하지만,
-`actions` 를 붙이는 순간 **의도하지 않은 리소스까지 고치게 된다.**
+findings 에 없는 리소스까지 대상이 된다. dryrun 이면 무해하지만 실조치를 켜는 순간
+**의도하지 않은 리소스까지 고치게 된다.**
 
-그래서 실행 전에 findings 의 리소스로 범위를 좁힌 임시 정책을 만들어 돌린다.
+그래서 실행 전에 대상 리소스 이름을 필터로 얹은 임시 정책을 만든다.
 
 ```yaml
 filters:
   - type: value          # <- 자동으로 맨 앞에 끼워 넣는다
     key: Name
     op: in
-    value: [miraen3]
+    value: [example-bucket]
   - not:
     - type: bucket-encryption
       ...
@@ -187,42 +280,97 @@ filters:
 
 - 어떤 필드로 좁힐지는 `mapping.yml` 의 `scope_key` 로 정한다 (S3 는 `Name`,
   EC2 는 `InstanceId`). ARN 의 마지막 조각과 대조한다.
-- 생성된 정책은 `out/_scoped/` 에 남으므로 무엇을 대상으로 돌렸는지 확인할 수 있다.
 - `blast_radius: account` 인 체크는 **범위 제한을 하지 않는다.** 계정 설정 하나를
   보는 것이라 리소스 필터를 얹으면 판정이 어긋난다.
 - `scope_key` 가 없으면 경고를 출력하고 계정 전체를 대상으로 돈다.
   **실조치 단계에서는 반드시 지정해야 한다.**
 
-### 실행기가 정책당 1회만 도는 이유
+### ⑤ 실행 — 정책당 1회
 
-같은 정책에 걸린 findings 를 묶어서 Custodian 을 **정책당 1회만** 실행한다.
-Custodian 은 finding 을 입력으로 받지 않고 AWS 전체를 조회하므로, finding 마다
-실행하면 완전히 같은 조회를 반복하게 된다.
+| | |
+|---|---|
+| 입력 | 범위를 좁힌 정책 |
+| 출력 | `out/<정책>/resources.json` |
 
-실행 후 `out/<정책이름>/resources.json` 을 읽어, finding 의 `resource_uid` 와
-일치하는 리소스가 있는지 대조한다. 리소스에서 ARN 을 찾을 때는
-`BucketArn` → `Arn` → `arn` 순으로 시도한다 (S3 버킷은 `BucketArn` 을 쓴다).
+같은 정책에 걸린 findings 를 묶어 **정책당 1회만** 실행한다. Custodian 은 finding 을
+입력으로 받지 않고 AWS 전체를 조회하므로, finding 마다 실행하면 완전히 같은 조회를
+반복하게 된다. findings 100건이 같은 체크면 실행은 1회다.
 
-범위 제한을 먼저 하므로 이 대조는 **"의도한 대상이 제대로 걸렸는지" 검증**이다.
-범위 제한 전에는 "어느 게 내 대상인가"를 고르는 역할이었다.
+```bash
+custodian run -s out out/_scoped/s3-no-kms-encryption.yml --dryrun
+```
 
-### 계정 대조
+**`--dryrun` 은 항상 붙는다.** 정책에 `actions` 가 있지만 실제 변경은 일어나지 않고
+"무엇을 할 계획인지"만 출력된다. 실조치를 켜려면 `run_custodian(dry_run=False)` 로
+바꾸면 되지만, 조치 전 스냅샷과 롤백이 붙기 전에는 켜지 않는다.
 
-조회 대상 계정은 **findings 파일이 아니라 실행자의 자격증명**이 결정한다.
-Custodian 은 boto3 기본 자격증명 체인(`~/.aws/credentials` 기본 프로필 →
-환경변수 → 인스턴스 역할)을 그대로 따르며, findings 파일은 "어떤 정책을 돌릴지"만 정한다.
+한 정책이 실패해도 **나머지 정책은 계속 진행한다.** 실패한 묶음만 `failed` 가 된다.
 
-그래서 ARN 대조에 앞서 계정부터 맞춰본다. Custodian 이 `out/<정책이름>/metadata.json` 의
-`config.account_id` 에 자신이 조회한 계정을 남기므로, 이걸 finding 의 `account_uid` 와
-비교한다 (추가 의존성 없음).
+### ⑥ 대조 — 의도한 대상이 걸렸는가
 
-다르면 `account_mismatch` 로 기록하고 대조를 생략한다. 이 확인이 없으면 A 계정 findings 를
-B 계정 자격증명으로 실행했을 때 **에러 없이 전부 `already_fixed`** 가 되어
-"이미 조치됨"으로 오독된다.
+| | |
+|---|---|
+| 입력 | 실행 결과 + finding 묶음 |
+| 출력 | finding 별 status |
 
-`metadata.json` 에서 계정을 확인하지 못하면 경고를 출력하고 대조는 건너뛴다.
+**Prowler 스캔은 과거 시점의 사진이고, Custodian 실행은 지금 이 순간의 상태다.**
+그래서 조치 직전에 "지금도 그런가"를 다시 확인한다.
 
----
+범위 제한을 먼저 하므로 이 단계는 **"의도한 대상이 제대로 걸렸는지" 검증**이다.
+범위 제한이 없던 시절에는 "어느 게 내 대상인가"를 고르는 역할이었다.
+
+판정 순서 — 앞의 조건이 걸리면 뒤는 보지 않는다.
+
+```
+1. 계정이 다름              → account_mismatch
+2. 계정 단위 체크            → 리소스 유무로 판정
+3. ARN 을 못 뽑음           → arn_not_found
+4. finding 의 ARN 이 결과에 있음 → still_open (조치 대상 확정)
+5. 없음                     → already_fixed
+```
+
+**1번이 맨 앞인 이유** — 조회 대상 계정은 findings 가 아니라 **실행자의 자격증명**이
+정한다. 계정이 다르면 ARN 이 안 맞는 게 당연한데 그걸 `already_fixed` 로 남기면
+"이미 조치됨"으로 오독된다. Custodian 이 `out/<정책>/metadata.json` 에 남기는
+`config.account_id` 를 finding 의 `account_uid` 와 비교한다.
+
+①의 범위 필터와 역할이 다르다. **①은 사전 차단, ⑥은 자격증명이 잘못됐을 때의 안전망**이다.
+
+리소스에서 ARN 을 찾을 때는 `BucketArn` → `Arn` → `arn` 순으로 시도한다.
+
+### ⑦ 승인 — 사람에게 묻는다
+
+| | |
+|---|---|
+| 입력 | `mode: approve` 이면서 `still_open` 인 건 |
+| 출력 | `approved` / `declined` / `approval_pending` |
+
+**dryrun 을 먼저 돌린 뒤에 묻는다.** 무엇을 고칠지 보여줘야 판단할 수 있기 때문이다.
+
+```
+  ── 승인 요청: s3-account-public-block ──
+     · arn:aws:s3:::example-bucket
+     주의: 정적 웹사이트 호스팅 버킷이 있으면 사이트가 내려간다
+  1건을 조치하시겠습니까? (y/N)
+```
+
+- **y** → `approved`. 지금은 dryrun 이라 실제 변경은 없다.
+- **n** → `declined`. 조치 방법과 참고 링크를 출력한다.
+- **비대화형** (파이프·CI) → 묻지 않고 `approval_pending` 으로 남긴다.
+  자동 실행 중에 입력을 기다리며 멈추면 안 되기 때문이다.
+
+`--yes` · `--no` 플래그로 일괄 처리할 수 있다.
+
+### ⑧ 로그 — 결과 기록
+
+| | |
+|---|---|
+| 입력 | 모든 finding (제외된 건 포함) |
+| 출력 | `logs/actions-<타임스탬프>.json` + 콘솔 요약 |
+
+①~⑦ 에서 걸러진 건까지 **전부** 기록한다. "왜 조치하지 않았는지"가 남아야
+다음 파트가 집계할 수 있다.
+
 
 ## status 값의 의미
 
@@ -230,10 +378,13 @@ B 계정 자격증명으로 실행했을 때 **에러 없이 전부 `already_fix
 |---|---|---|
 | `still_open` | **지금도 위반 상태다.** Prowler 스캔 시점의 문제가 아직 남아 있다 — 조치 대상으로 확정 | 실행함 |
 | `already_fixed` | **더 이상 위반이 아니다.** 스캔 이후 해소됐거나, 두 도구의 판정 기준이 다르거나, 리소스가 삭제된 경우 | 실행함 |
+| `out_of_scope` | 조치 대상 계정·리전이 아니다. 범위 설정(`scope.yml`)에서 걸렀다 | 실행 안 함 |
 | `unmapped` | `mapping.yml` 에 해당 `check_id` 항목이 없다. 매핑을 추가해야 처리된다 | 실행 안 함 |
 | `not_supported` | 조치 도구 자체가 없다 (`mode: not_supported`). 예: MFA Delete 는 루트 자격증명 필요 | 실행 안 함 |
 | `manual_required` | 도구는 있지만 조치가 위험해 사람이 처리해야 한다 (`mode: manual`) | 실행 안 함 |
-| `approval_pending` | 승인이 필요한 조치 (`mode: approve`). 승인 흐름 구현 전까지는 기록만 한다 | 실행 안 함 |
+| `approved` | 승인자가 조치를 승인했다. **dryrun 이라 실제 변경은 아직 없다** | 실행함 |
+| `declined` | 승인자가 거부했다. `reason` 에 조치 방법이 담긴다 | 실행함 |
+| `approval_pending` | 승인이 필요한데 물을 수 없었다 (비대화형 실행) | 실행함 |
 | `failed` | Custodian 실행이 실패했거나 결과 파일을 읽지 못했다. `reason` 에 에러 메시지가 담긴다. **한 정책이 실패해도 나머지 정책은 계속 진행한다** | 시도함 |
 | `arn_not_found` | dryrun 결과에서 ARN 필드를 찾지 못했거나, finding 에 `resource_uid` 가 없어 대조할 수 없다 | 실행함 |
 | `account_mismatch` | finding 의 `account_uid` 와 Custodian 이 실제로 조회한 계정이 다르다. 다른 계정 자격증명으로 실행한 경우이며, 대조를 생략한다 | 실행함 |

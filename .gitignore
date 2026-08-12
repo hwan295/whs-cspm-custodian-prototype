@@ -20,3 +20,6 @@ architecture.svg
 architecture.png
 in-out-architecture.drawio
 remediation_inout.drawio
+
+# 조치 대상 범위 - 실제 계정 ID 가 들어간다
+response/scope.yml
