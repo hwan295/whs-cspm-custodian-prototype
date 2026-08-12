@@ -41,10 +41,22 @@ FIELD_PATHS = {
     # 담당자에게 넘길 때 그대로 쓴다
     "remediation_desc": "remediation.desc",
     "remediation_refs": "remediation.references",
+    # 승인 화면에서 "무엇이 왜 문제인지" 보여줄 때 쓴다
+    "title": "finding_info.title",
+    "description": "finding_info.desc",
+    "status_detail": "status_detail",
+    "risk_details": "risk_details",
 }
 
 # 없어도 파이프라인이 도는 필드. 누락 경고를 띄우지 않는다
-OPTIONAL_FIELDS = {"remediation_desc", "remediation_refs"}
+OPTIONAL_FIELDS = {
+    "remediation_desc",
+    "remediation_refs",
+    "title",
+    "description",
+    "status_detail",
+    "risk_details",
+}
 
 
 def load_raw_findings(path):

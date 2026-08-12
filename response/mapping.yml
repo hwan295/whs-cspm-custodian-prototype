@@ -52,7 +52,8 @@ s3_bucket_secure_transport_policy:
 s3_bucket_kms_encryption:
   policy: s3-no-kms-encryption
   remediation:
-    mode: auto
+    # KMS 는 요청마다 과금되므로(판정 기준 10단계) 사람이 확인한 뒤 실행한다
+    mode: approve
     disruption: none
     blast_radius: resource
     propagation_delay: immediate
