@@ -13,7 +13,7 @@ import json
 import os
 import subprocess
 
-from .approval import confirm, print_guidance
+from .approval import confirm_each, print_guidance
 from .config import ARN_FIELDS, CUSTODIAN_TIMEOUT, OUT_DIR, WORK_DIR
 from .findings import dig
 from .mapping import build_reason
@@ -242,25 +242,24 @@ def request_approval(policy_name, findings):
     if not pending:
         return
 
-    answer = confirm(policy_name, pending)
+    result = confirm_each(policy_name, pending)
 
-    if answer is None:
-        for finding in pending:
-            finding["status"] = "approval_pending"
-            finding["reason"] = "승인 대기 - 비대화형 실행이라 묻지 못함"
-        return
+    for finding in result["approved"]:
+        finding["status"] = "approved"
+        finding["reason"] = "승인됨 - dryrun 이라 실제 변경은 없음"
 
-    if answer:
-        for finding in pending:
-            finding["status"] = "approved"
-            finding["reason"] = "승인됨 - dryrun 이라 실제 변경은 없음"
-        print(f"      승인 {len(pending)}건 (dryrun 이므로 실제 변경 없음)")
-        return
+    for finding in result["pending"]:
+        finding["status"] = "approval_pending"
+        finding["reason"] = "승인 대기 - 물을 수 없어 보류"
 
     # 거부 - 사람이 직접 조치할 수 있도록 안내를 남긴다
-    for finding in pending:
+    for finding in result["declined"]:
         remediation = finding.get("remediation") or {}
         finding["status"] = "declined"
         finding["reason"] = build_reason(finding, remediation, "approve")
-    print(f"      거부 {len(pending)}건 - 조치 방법:")
-    print_guidance(pending)
+
+    if result["approved"]:
+        print(f"      승인 {len(result['approved'])}건 (dryrun 이므로 실제 변경 없음)")
+    if result["declined"]:
+        print(f"      거부 {len(result['declined'])}건 - 조치 방법:")
+        print_guidance(result["declined"])
