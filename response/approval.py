@@ -2,22 +2,20 @@
 
 dryrun 으로 대상을 확인한 뒤에 묻는다. 무엇을 고칠지 보여줘야 판단할 수 있기 때문이다.
 
-물을 때는 네 가지를 보여준다.
+물을 때는 다섯 가지를 보여준다.
     무엇이 문제인가   체크 제목 · severity · 위험 설명
     무엇을 할 것인가   정책이 실행할 액션
     왜 확인이 필요한가 risk_note (자동으로 돌리지 않는 이유)
     어느 리소스인가   ARN · 리전 · 리소스별 FAIL 사유
+    또 무엇이 바뀌나   finding 이 없는데 정책에 걸린 리소스 (초과 영향)
 
 비대화형(파이프·CI)에서는 묻지 않고 approval_pending 으로 남긴다.
 자동 실행 중에 입력을 기다리며 멈추면 안 된다.
 """
 
-import os
 import sys
 
-import yaml
-
-from .scoping import policy_file
+from .scoping import find_policy
 
 # 프롬프트 없이 일괄 처리할 때 쓰는 값. run.py 가 CLI 인자로 설정한다.
 #   None  - 물어본다 (기본)
@@ -44,21 +42,15 @@ def describe_actions(policy_name):
     """정책이 실행할 액션을 사람이 읽을 수 있게 요약한다.
 
     승인자가 "무엇을 할 것인지" 알아야 판단할 수 있다.
-    정책 파일을 읽지 못하면 빈 리스트를 돌려주고 프롬프트에서 생략한다.
+    이름으로 정확히 찾는다 - 서비스 파일에는 정책이 여러 개 들어 있어서
+    첫 정책을 집으면 다른 체크의 액션을 보여주게 된다.
+    정책을 찾지 못하면 빈 리스트를 돌려주고 프롬프트에서 생략한다.
     """
-    path = policy_file(policy_name)
-    if not os.path.isfile(path):
+    policy, error = find_policy(policy_name)
+    if error:
         return []
 
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            doc = yaml.safe_load(f) or {}
-        policies = doc.get("policies") or []
-        if not policies:
-            return []
-        actions = policies[0].get("actions") or []
-    except (OSError, yaml.YAMLError):
-        return []
+    actions = policy.get("actions") or []
 
     summary = []
     for action in actions:
@@ -77,8 +69,12 @@ def describe_actions(policy_name):
     return summary
 
 
-def _print_request(policy_name, findings):
-    """승인 요청 내용을 출력한다."""
+def _print_request(policy_name, findings, untargeted=()):
+    """승인 요청 내용을 출력한다.
+
+    untargeted 는 정책에 걸렸지만 finding 이 없는 리소스다. 승인하면 이것들도
+    같이 바뀌므로 반드시 보여준다 (아래 _print_untargeted 참고).
+    """
     head = findings[0]
     remediation = head.get("remediation") or {}
 
@@ -111,7 +107,33 @@ def _print_request(policy_name, findings):
         print(f"  영향   중단={disruption or '?'} · 범위={blast or '?'}")
 
     print("")
+    _print_untargeted(untargeted)
     print(f"  대상 {len(findings)}건 - 건별로 확인합니다")
+    print("")
+
+
+# 초과 리소스를 몇 개까지 나열할지. 넘으면 건수만 알린다
+UNTARGETED_PREVIEW = 10
+
+
+def _print_untargeted(untargeted):
+    """finding 이 없는데 정책에 걸린 리소스를 경고로 보여준다.
+
+    **승인 화면이 영향 범위를 축소해서 말하면 안 된다.** Custodian 은 필터에 걸린
+    리소스를 전부 조치하므로, 여기 나온 것들도 승인과 함께 바뀐다.
+
+    주로 계정 단위 체크에서 생긴다. 계정 설정 하나를 보는 체크라 범위 제한을
+    걸 수 없고, 그래서 계정의 리소스가 전부 걸린다.
+    scope_key 를 빠뜨린 경우에도 나온다 - 그때는 매핑을 고쳐야 한다.
+    """
+    if not untargeted:
+        return
+
+    print(f"  [경고] finding 이 없는 리소스 {len(untargeted)}건도 함께 조치됩니다")
+    for arn in untargeted[:UNTARGETED_PREVIEW]:
+        print(f"         · {arn}")
+    if len(untargeted) > UNTARGETED_PREVIEW:
+        print(f"         · ... 외 {len(untargeted) - UNTARGETED_PREVIEW}건")
     print("")
 
 
@@ -121,7 +143,7 @@ def _trim(text, limit=160):
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
-def confirm_each(policy_name, findings):
+def confirm_each(policy_name, findings, untargeted=()):
     """리소스 하나씩 조치 여부를 묻는다.
 
     **건별로 묻는 이유** - 같은 체크에 걸렸어도 리소스마다 사정이 다르다.
@@ -130,6 +152,10 @@ def confirm_each(policy_name, findings):
 
     a(나머지 전부 승인) · q(나머지 전부 거부)로 일괄 처리할 수 있다.
 
+    untargeted 는 정책에 걸렸지만 finding 이 없는 리소스의 ARN 이다.
+    묻지 않는 경로(플래그·비대화형)에서도 반드시 알린다 - 조용히 넘어가면
+    영향 범위를 모른 채 승인되기 때문이다.
+
     반환: {"approved": [...], "declined": [...], "pending": [...]}
     """
     result = {"approved": [], "declined": [], "pending": []}
@@ -137,15 +163,18 @@ def confirm_each(policy_name, findings):
     if AUTO_ANSWER is not None:
         label = "승인" if AUTO_ANSWER else "거부"
         print(f"      [{policy_name}] 대상 {len(findings)}건 - 플래그로 일괄 {label}")
+        if AUTO_ANSWER:
+            _print_untargeted(untargeted)
         result["approved" if AUTO_ANSWER else "declined"] = list(findings)
         return result
 
     if not is_interactive():
         print(f"      [{policy_name}] 대상 {len(findings)}건 - 비대화형이라 승인 보류")
+        _print_untargeted(untargeted)
         result["pending"] = list(findings)
         return result
 
-    _print_request(policy_name, findings)
+    _print_request(policy_name, findings, untargeted)
 
     bulk = None          # a / q 를 누르면 나머지를 여기에 담아 처리한다
     total = len(findings)

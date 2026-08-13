@@ -57,7 +57,7 @@ policies:
       note: |
         bucket-encryption 필터는 조건에 맞는 버킷을 남기므로 not 으로 감싼다.
         암호화가 아예 없는 버킷과 AES256 로만 암호화된 버킷이 모두 걸린다.
-        key 를 지정하면 버킷마다 값이 달라질 수 있어 판정 기준 4단계를 다시 봐야 한다.
+        key 를 지정하면 버킷마다 KMS 키가 달라질 수 있어 조치 위험도를 다시 판단해야 한다.
     filters:
       - not:
         - type: bucket-encryption

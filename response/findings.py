@@ -1,4 +1,4 @@
-"""findings 파싱 - 티켓 #1.
+"""findings 파싱 - 동작 방식 ② (README 참고).
 
 입력 구조에 의존하는 곳은 여기뿐이다. 스캔 파트의 데이터 형식이 바뀌면
 FIELD_PATHS 만 갈아끼우면 되고, 아래 단계는 평평한 dict 만 본다.
@@ -91,6 +91,13 @@ def load_raw_findings(path):
             if isinstance(data.get(key), list):
                 return data[key]
         return [data]
+
+    if not isinstance(data, list):
+        # 숫자나 문자열 같은 값 하나만 든 파일. 리스트로 취급하면
+        # 글자 단위로 순회하게 되므로 여기서 끊는다
+        print(f"[!] findings 형식이 아닙니다 (최상위가 {type(data).__name__})")
+        return []
+
     return data
 
 

@@ -1,4 +1,4 @@
-"""조치 로그 생성과 출력 - 티켓 #7.
+"""조치 로그 생성과 출력 - 동작 방식 ⑧ (README 참고).
 
 다음 파트(⑤ 분석·리포팅)가 소비하는 산출물이라 필드 구성이 곧 계약이다.
 통합 시 remediation_status 테이블로 들어간다.
@@ -25,12 +25,16 @@ LOG_FIELDS = (
 )
 
 # remediation 에서 로그로 옮겨 담을 항목.
-# propagation_delay 는 지금은 기록만 한다 - 조치 후 재확인(#C3)이 붙을 때 쓴다
+# 조치의 "위험도"를 리포팅 파트에 그대로 넘긴다. 어느 것을 먼저 처리할지,
+# 승인 화면에 무엇을 보여줄지는 그쪽에서 판단해야 하기 때문이다.
+# propagation_delay 는 지금은 기록만 한다 - 조치 후 재확인 기능이 붙을 때 대기 시간으로 쓴다
 REMEDIATION_LOG_FIELDS = (
     "mode",
     "disruption",
     "blast_radius",
     "propagation_delay",
+    "reversible",
+    "cost_impact",
     "risk_note",
 )
 

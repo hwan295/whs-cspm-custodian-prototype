@@ -1,4 +1,4 @@
-"""Custodian 실행과 결과 대조 - 티켓 #6.
+"""Custodian 실행과 결과 대조 - 동작 방식 ⑤⑥ (README 참고).
 
 이 모듈이 유일하게 AWS 와 통신하는 곳이고, 실조치를 켜면 되돌릴 수 없는 변경이
 나가는 통로다. 순서가 중요하다.
@@ -20,12 +20,12 @@ from .mapping import build_reason
 from .scoping import build_scoped_policy
 
 
-def run_custodian(policy_path, policy_name, dry_run=True):
+def run_custodian(policy_path, dry_run=True):
     """Custodian 을 1회 실행한다.
 
     dry_run=False 로 부르면 **실제로 AWS 리소스가 바뀐다.**
     지금은 호출부가 항상 True 를 넘긴다. 실조치를 켜려면 이 인자만 바꾸면 되지만,
-    조치 전 스냅샷(B1)과 롤백(B2)이 붙기 전에는 False 로 부르지 않는다.
+    조치 전 스냅샷과 롤백이 붙기 전에는 False 로 부르지 않는다.
 
     반환: (성공여부, 에러메시지)
     실패해도 예외를 던지지 않는다. 호출부가 다음 정책으로 계속 진행할 수 있어야 한다.
@@ -200,7 +200,7 @@ def execute_policies(findings_by_policy):
             continue
         print(f"      {scope_note}")
 
-        ok, error = run_custodian(policy_path, policy_name)
+        ok, error = run_custodian(policy_path)
         if not ok:
             print(f"      실패: {error}")
             _mark_all(findings, "failed", error)
@@ -223,10 +223,24 @@ def execute_policies(findings_by_policy):
             print(f"      조회 계정 {scanned_account}")
 
         verify_findings(findings, resources, scanned_account)
-        request_approval(policy_name, findings)
+        request_approval(policy_name, findings, resources)
 
 
-def request_approval(policy_name, findings):
+def untargeted_arns(findings, resources):
+    """정책에 걸렸지만 finding 이 없는 리소스의 ARN 을 추린다.
+
+    범위 제한이 걸리면 보통 비어 있다. 비어 있지 않다는 것은 정책이 우리가
+    요청하지 않은 리소스까지 대상으로 삼았다는 뜻이고, 실조치를 켜면
+    **그것들도 함께 바뀐다.** 승인 화면에 반드시 노출해야 한다.
+
+    계정 단위 체크에서는 정상적으로 발생한다 (범위 제한을 걸 수 없으므로).
+    """
+    targeted = {f.get("resource_uid") for f in findings if f.get("resource_uid")}
+    found = {a for a in (extract_arn(r) for r in resources) if a}
+    return sorted(found - targeted)
+
+
+def request_approval(policy_name, findings, resources):
     """mode=approve 인 건에 대해 승인을 묻고 결과를 status 에 반영한다.
 
     still_open 인 건만 묻는다. 이미 해소됐거나 대조가 안 된 건은 물을 이유가 없다.
@@ -242,7 +256,7 @@ def request_approval(policy_name, findings):
     if not pending:
         return
 
-    result = confirm_each(policy_name, pending)
+    result = confirm_each(policy_name, pending, untargeted_arns(pending, resources))
 
     for finding in result["approved"]:
         finding["status"] = "approved"
