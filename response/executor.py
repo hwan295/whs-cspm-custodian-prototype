@@ -17,6 +17,7 @@ from .approval import confirm_each, print_guidance
 from .config import ARN_FIELDS, CUSTODIAN_TIMEOUT, OUT_DIR, WORK_DIR
 from .findings import dig
 from .mapping import build_reason
+from .optin import is_opted_in
 from .scoping import build_scoped_policy
 
 
@@ -152,8 +153,8 @@ def verify_findings(findings, resources, scanned_account):
         # 계정 설정 하나를 보는 체크에 리소스 단위로 대조하면 판정 단위가 어긋난다
         # (예: s3_account_level_public_access_blocks).
         # 정책에 걸린 리소스가 하나라도 있으면 "계정에 문제가 있다"로 본다
-        remediation = finding.get("remediation") or {}
-        if remediation.get("blast_radius") == "account":
+        approve = (finding.get("policy_meta") or {}).get("approve") or {}
+        if approve.get("blast_radius") == "account":
             if resources:
                 finding["status"] = "still_open"
                 finding["reason"] = f"계정 단위 판정 - 대상 리소스 {len(resources)}건"
@@ -248,12 +249,22 @@ def request_approval(policy_name, findings, resources):
     승인(approved)해도 지금은 AWS 가 바뀌지 않는다. dryrun 으로만 돌기 때문이다.
     실조치를 켜면 이 지점에서 run_custodian(dry_run=False) 를 한 번 더 부르게 된다.
     """
-    mode = (findings[0].get("remediation") or {}).get("mode") if findings else None
+    mode = (findings[0].get("mapping") or {}).get("mode") if findings else None
     if mode != "approve":
         return
 
     pending = [f for f in findings if f.get("status") == "still_open"]
     if not pending:
+        return
+
+    # 사용자가 이 체크의 자동 실행을 켜 두었으면 묻지 않는다.
+    # 지금은 optin 이 항상 False 라 이 가지로 들어오지 않는다 (optin.py 참고)
+    head = pending[0]
+    if is_opted_in(head.get("account_uid"), head.get("check_id")):
+        for finding in pending:
+            finding["status"] = "auto_approved"
+            finding["reason"] = "사용자가 자동 실행을 켜 둔 체크 - 승인 생략"
+        print(f"      자동 실행 {len(pending)}건 (opt-in)")
         return
 
     result = confirm_each(policy_name, pending, untargeted_arns(pending, resources))
@@ -268,9 +279,8 @@ def request_approval(policy_name, findings, resources):
 
     # 거부 - 사람이 직접 조치할 수 있도록 안내를 남긴다
     for finding in result["declined"]:
-        remediation = finding.get("remediation") or {}
         finding["status"] = "declined"
-        finding["reason"] = build_reason(finding, remediation, "approve")
+        finding["reason"] = build_reason(finding, finding.get("mapping") or {}, "approve")
 
     if result["approved"]:
         print(f"      승인 {len(result['approved'])}건 (dryrun 이므로 실제 변경 없음)")

@@ -15,7 +15,7 @@ dryrun 으로 대상을 확인한 뒤에 묻는다. 무엇을 고칠지 보여�
 
 import sys
 
-from .scoping import find_policy
+from .policy_meta import find_policy
 
 # 프롬프트 없이 일괄 처리할 때 쓰는 값. run.py 가 CLI 인자로 설정한다.
 #   None  - 물어본다 (기본)
@@ -76,7 +76,8 @@ def _print_request(policy_name, findings, untargeted=()):
     같이 바뀌므로 반드시 보여준다 (아래 _print_untargeted 참고).
     """
     head = findings[0]
-    remediation = head.get("remediation") or {}
+    # 조치 속성은 정책 파일의 metadata.approve 에 있다 (mapping.yml 은 라우팅만)
+    approve = (head.get("policy_meta") or {}).get("approve") or {}
 
     print("")
     print("  " + "─" * 66)
@@ -97,12 +98,12 @@ def _print_request(policy_name, findings, untargeted=()):
     else:
         print(f"  조치   정책 {policy_name} 실행")
 
-    note = remediation.get("risk_note")
+    note = approve.get("risk_note")
     if note:
         print(f"  주의   {note}")
 
-    disruption = remediation.get("disruption")
-    blast = remediation.get("blast_radius")
+    disruption = approve.get("disruption")
+    blast = approve.get("blast_radius")
     if disruption or blast:
         print(f"  영향   중단={disruption or '?'} · 범위={blast or '?'}")
 

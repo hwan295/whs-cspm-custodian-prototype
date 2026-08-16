@@ -4,6 +4,9 @@ out/
 # 조치 로그 - 계정 ID, 리소스 ARN 포함
 logs/
 
+# Prowler 스캔 결과 - 계정 ID, 버킷 이름, 리소스 ARN 이 평문으로 남는다
+output/
+
 # Python
 __pycache__/
 *.pyc

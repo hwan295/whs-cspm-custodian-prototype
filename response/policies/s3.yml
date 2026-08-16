@@ -1,15 +1,20 @@
 # S3 정책 모음
 #
-# 파일 하나에 서비스 하나. 정책이 늘어도 파일이 흩어지지 않고, Custodian 이
-# 같은 리소스 타입의 조회 결과를 공유할 수 있다.
+# 파일 하나에 서비스 하나. 정책이 늘어도 파일이 흩어지지 않는다.
+# 실행할 때는 이 파일을 그대로 넘기지 않고 정책 하나만 뽑아 쓴다.
 #
 # 정책 이름은 Prowler check_id 의 언더바를 하이픈으로 바꾼 것이다.
 #     s3_bucket_kms_encryption  ->  s3-bucket-kms-encryption
 # 이 규칙 덕분에 mapping.yml 에서 policy 를 생략해도 코드가 찾아낸다.
 #
-# metadata 는 Custodian 이 지원하는 정식 필드다. 여기에 출처 체크와 조치 요약을
-# 남겨두면 정책 파일만 봐도 무엇을 왜 하는지 알 수 있고, 코드가 파싱해
-# 매핑과 어긋나는지 검증할 수 있다.
+# metadata 두 블록의 역할
+#   approve   조치를 실행하면 무슨 일이 일어나는가. 승인 화면과 로그가 쓴다
+#   auto      승인 없이 돌려도 되는가. 돌린다면 어떤 안전장치가 필요한가
+#
+# auto.eligible 은 네 조건을 모두 만족할 때만 true 다.
+#     reversible: true / blast_radius: resource / disruption: none / rollback_cli 존재
+# 넷 다 이 파일 안에 있어서 리뷰어가 한 파일만 보고 검증할 수 있다.
+# 코드가 조건을 다시 계산해 대조하므로, 조건 미달인데 true 를 적으면 경고가 뜬다.
 #
 # 실행은 항상 --dryrun 이라 actions 가 있어도 실제 변경은 일어나지 않는다.
 
@@ -20,10 +25,18 @@ policies:
     description: HTTPS 를 강제하는 버킷 정책이 없는 버킷
     metadata:
       prowler_check: s3_bucket_secure_transport_policy
-      remediation_summary: 버킷 정책에 SecureTransport=false 를 막는 Deny 구문을 추가한다
-      note: |
-        remove:"*" 를 쓰지 않는다. 기존 구문을 전부 지우면 정당한 접근 허용까지
-        날아가므로 Deny 구문만 얹는다.
+      approve:
+        disruption: none
+        blast_radius: resource
+        propagation_delay: immediate
+        reversible: true
+        cost_impact: none
+        risk_note: HTTP 로만 접근하던 클라이언트가 있으면 차단된다
+      auto:
+        eligible: false
+        reason: |
+          기존 버킷 정책을 읽어 구문을 얹는 조치라 원복을 한 줄 명령으로 만들 수 없다.
+          되돌리려면 조치 전 정책 전문을 복원해야 하므로 스냅샷 기능이 먼저 필요하다.
     filters:
       - not:
         - type: has-statement
@@ -34,6 +47,8 @@ policies:
                 Bool:
                   "aws:SecureTransport": "false"
     actions:
+      # remove:"*" 를 쓰지 않는다. 기존 구문을 전부 지우면 정당한 접근 허용까지
+      # 날아가므로 Deny 구문만 얹는다
       - type: set-statements
         statements:
           - Sid: DenyInsecureTransport
@@ -53,11 +68,29 @@ policies:
     description: SSE-KMS 기본 암호화가 설정되지 않은 버킷
     metadata:
       prowler_check: s3_bucket_kms_encryption
-      remediation_summary: 기본 암호화를 SSE-KMS 로 활성화한다
-      note: |
-        bucket-encryption 필터는 조건에 맞는 버킷을 남기므로 not 으로 감싼다.
-        암호화가 아예 없는 버킷과 AES256 로만 암호화된 버킷이 모두 걸린다.
-        key 를 지정하면 버킷마다 KMS 키가 달라질 수 있어 조치 위험도를 다시 판단해야 한다.
+      approve:
+        disruption: none
+        blast_radius: resource
+        propagation_delay: immediate
+        reversible: true
+        cost_impact: low
+        risk_note: 신규 객체만 영향. 기존 객체는 그대로이며 KMS 요청 비용이 발생한다
+      auto:
+        eligible: true
+        warning: |
+          앞으로 이 계정의 미암호화 버킷은 승인 없이 SSE-KMS 로 전환된다.
+          KMS 요청마다 비용이 발생하므로 요청량이 많은 버킷은 예외로 두는 것이 좋다.
+        allowed_scopes:
+          - resource
+          - account
+        rollback_cli: >-
+          aws s3api put-bucket-encryption --bucket {resource_id}
+          --server-side-encryption-configuration
+          '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+        cooldown: 24h
+        post_notification: log
+    # bucket-encryption 필터는 조건에 맞는 버킷을 남기므로 not 으로 감싼다.
+    # 암호화가 아예 없는 버킷과 AES256 으로만 암호화된 버킷이 모두 걸린다
     filters:
       - not:
         - type: bucket-encryption
@@ -73,12 +106,23 @@ policies:
     description: 퍼블릭 액세스 차단 4개 항목이 모두 켜져 있지 않은 버킷
     metadata:
       prowler_check: s3_account_level_public_access_blocks
-      remediation_summary: 퍼블릭 액세스 차단 4개 항목을 모두 활성화한다
-      note: |
-        이 필터는 aws.s3(버킷 단위)다. Prowler 의 해당 체크는 계정 단위 설정을
-        보므로 판정 단위가 다르다. 계정 단위로 맞추려면 resource 를 aws.account,
-        필터를 s3-public-block, 액션을 set-s3-public-block 으로 바꿔야 한다.
-        (README 의 "알려진 차이점" 참고)
+      approve:
+        disruption: none
+        blast_radius: account
+        propagation_delay: immediate
+        reversible: true
+        cost_impact: none
+        risk_note: 정적 웹사이트 호스팅 버킷이 있으면 사이트가 내려간다
+      auto:
+        eligible: false
+        reason: |
+          계정 전체가 한 번에 바뀌는 조치라(blast_radius=account) 자동화 대상이 아니다.
+          영향받는 버킷을 사람이 매번 확인해야 한다.
+    # 알려진 결함 - 이 필터는 aws.s3(버킷 단위)인데 Prowler 의 해당 체크는 계정
+    # 단위 설정을 본다. 판정 단위가 어긋나 실제로 오답이 나온 적이 있다
+    # (계정 설정이 꺼져 있는데 버킷들이 각자 차단돼 있어 already_fixed 로 판정).
+    # resource: aws.account + 필터 s3-public-block + 액션 set-s3-public-block 으로
+    # 바꿔야 한다. custodian schema 로 파라미터를 확인한 뒤 수정할 것.
     filters:
       - type: check-public-block
     actions:
