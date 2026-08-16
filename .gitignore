@@ -29,3 +29,6 @@ remediation_inout.drawio
 # 조치 대상 범위 - 실제 계정 ID 가 들어간다
 response/scope.yml
 progress.csv
+
+# 랩 검증 증거 - 계정 ID·ARN 포함
+evidence/

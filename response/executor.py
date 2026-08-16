@@ -19,7 +19,7 @@ from .findings import dig
 from .mapping import build_reason
 from .optin import describe_source, is_opted_in
 from .policy_meta import is_account_scoped
-from .scoping import build_scoped_policy
+from .scoping import build_scoped_policy, extract_resource_name
 
 
 def run_custodian(policy_path, dry_run=True):
@@ -116,6 +116,28 @@ def extract_arn(resource):
     return None
 
 
+def resource_identifiers(resources, scope_key):
+    """대조에 쓸 식별자를 모은다.
+
+    **ARN 만으로는 부족하다.** Custodian 리소스에 ARN 필드가 있는 건 S3 정도이고,
+    EC2·EBS·서브넷은 InstanceId·VolumeId·SubnetId 같은 식별자만 들고 온다.
+    실제로 이것 때문에 S3 외 정책이 전부 arn_not_found 로 떨어진 적이 있다.
+
+    그래서 **범위를 좁힐 때 쓴 필드(scope_key)로 대조도 한다.** 좁히는 기준과
+    맞추는 기준이 같아야 앞뒤가 맞는다.
+    """
+    found = set()
+    for resource in resources:
+        arn = extract_arn(resource)
+        if arn:
+            found.add(arn)
+        if scope_key and isinstance(resource, dict):
+            value = resource.get(scope_key)
+            if value:
+                found.add(value)
+    return found
+
+
 def _mark_all(findings, status, reason):
     """묶음 전체를 같은 상태로 확정한다. 실행 자체가 실패했을 때 쓴다."""
     for finding in findings:
@@ -132,10 +154,10 @@ def verify_findings(findings, resources, scanned_account):
       3. ARN 을 못 뽑음     -> arn_not_found
       4. ARN 일치 여부      -> still_open / already_fixed
     """
-    arns = [extract_arn(r) for r in resources]
-    matched_arns = {a for a in arns if a}
-    # 리소스는 있는데 ARN 을 하나도 못 뽑으면 finding 과 대조할 방법이 없다
-    arn_missing = bool(resources) and not matched_arns
+    scope_key = (findings[0].get("mapping") or {}).get("scope_key") if findings else None
+    matched = resource_identifiers(resources, scope_key)
+    # 리소스는 있는데 식별자를 하나도 못 뽑으면 finding 과 대조할 방법이 없다
+    id_missing = bool(resources) and not matched
 
     for finding in findings:
         finding_account = finding.get("account_uid")
@@ -165,18 +187,22 @@ def verify_findings(findings, resources, scanned_account):
                 finding["reason"] = f"{unit} 단위 판정 - 대상 리소스 없음"
             continue
 
-        if arn_missing:
+        if id_missing:
             finding["status"] = "arn_not_found"
             finding["reason"] = (
-                f"dryrun 결과에서 {'/'.join(ARN_FIELDS)} 필드를 찾지 못해 대조 불가"
+                f"dryrun 결과에서 {'/'.join(ARN_FIELDS)} 도 scope_key"
+                f"({scope_key}) 도 찾지 못해 대조 불가"
             )
             continue
 
         resource_uid = finding.get("resource_uid")
+        # finding 은 ARN 을 주므로 마지막 조각도 함께 본다
+        # (arn:aws:ec2:…:instance/i-0abc -> i-0abc 가 InstanceId 와 맞는다)
+        name = extract_resource_name(resource_uid)
         if not resource_uid:
             finding["status"] = "arn_not_found"
             finding["reason"] = "finding 에 resource_uid 가 없어 대조 불가"
-        elif resource_uid in matched_arns:
+        elif resource_uid in matched or (name and name in matched):
             finding["status"] = "still_open"
             finding["reason"] = None
         else:

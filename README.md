@@ -3,7 +3,8 @@
 Prowler(탐지)와 Cloud Custodian(조치)을 잇는 파이프라인.
 
 Prowler 가 findings 를 뱉으면, 해당 체크에 대응하는 Custodian 정책을 찾아
-dryrun 으로 실행하고, 사람의 승인을 받아 조치한다.
+dryrun 으로 실행하고, 사람의 승인을 받아 조치한다. Custodian 으로 다룰 수 없는
+건은 사람이 직접 처리할 수 있도록 CLI 명령과 콘솔 절차를 안내한다.
 
 Custodian 은 findings 를 입력으로 받지 않고 AWS 를 직접 조회하는 도구다.
 따라서 두 도구의 연결점은 **`Prowler 의 metadata.event_code` ↔ `Custodian 정책 이름`**
@@ -109,7 +110,7 @@ dryrun 으로 대상을 확인한 뒤 **리소스마다** 물어본다.
   ──────────────────────────────────────────────────────────────────
   승인 요청  ·  s3_bucket_kms_encryption  (Medium)
   ──────────────────────────────────────────────────────────────────
-  조치   set-bucket-encryption(crypto=aws:kms, enabled=True)
+  조치   set-bucket-encryption(crypto=aws:kms, key=alias/aws/s3)
   주의   SSE-KMS 기본 암호화 적용 후 새로 저장되는 객체는 KMS 권한이 필요할 수 있으며 …
   영향   중단=access · 범위=resource
 
@@ -129,43 +130,48 @@ dryrun 으로 대상을 확인한 뒤 **리소스마다** 물어본다.
 ```
   [경고] finding 이 없는 리소스 4건도 함께 조치됩니다
          · arn:aws:s3:::marketing-static-site
-         · arn:aws:s3:::team-terraform-state
 ```
 
-승인하면 이것들도 같이 바뀐다. 계정 단위 체크에서 주로 발생한다(④ 참고).
+승인하면 이것들도 같이 바뀐다. 계정·리전 단위 체크에서 주로 발생한다(④ 참고).
 
 ### 실행 결과
 
 ```
 [1/4] findings 파싱: output/prowler-output-…ocsf.json
-      전체 finding 37건
-      FAIL 18건 추출
-      범위 [환경변수] 계정 123456789012 / 리전 제한 없음
+      전체 finding 639건
+      FAIL 384건 추출
+      범위 [scope.yml] 계정 196338354352 / 리전 ap-northeast-2
 [2/4] 매핑 로드: .../mapping.yml
-      매핑 항목 19건
+      매핑 항목 102건
       [주의] s3_bucket_kms_encryption: SSE-KMS 기본 암호화 적용 후 …
-      실행 대상 5건 / 제외 13건
-[3/4] Custodian dryrun 실행: 정책 3개
-  - s3-bucket-kms-encryption (finding 2건)
-      대상 2건으로 범위 제한 (Name)
-      dryrun 대상 리소스 2건 / ARN 확보 2건
-      조회 계정 123456789012
-[4/4] 조치 로그 저장: .../logs/actions-20260816-130239.json
+      실행 대상 27건 / 제외 357건
+[3/4] Custodian dryrun 실행: 정책 20개
+      자동 실행 설정: 미연결(스텁) - 모든 조치가 승인을 거칩니다
+  - s3-bucket-kms-encryption (finding 4건)
+      대상 4건으로 범위 제한 (Name)
+      dryrun 대상 리소스 4건 / ARN 확보 4건
+      조회 계정 196338354352
+[4/4] 조치 로그 저장: .../logs/actions-20260816-204927.json
 
 === 요약 ===
-  approved                  5건
-  unmapped                 13건
-  합계                     18건
+  approved                 27건
+  manual_required         357건
+  합계                    384건
+
+  자동화 후보 11건 - 대시보드에서 켤 수 있습니다
 ```
+
+**`자동 실행 설정` 줄을 매번 찍는다.** 아무것도 자동으로 나가지 않는다는 사실을
+실행할 때마다 눈으로 확인할 수 있어야 하기 때문이다.
 
 ### Prowler 로 findings 만들기
 
 ```bash
-prowler aws --output-formats json-ocsf --services s3 ec2 iam vpc cloudtrail
+prowler aws --output-formats json-ocsf
 ```
 
 `output/` 아래 생기는 `*.ocsf.json` 을 인자로 넘기면 된다. `output/` 은 계정 ID 와
-리소스 이름이 평문으로 남으므로 git 에서 제외된다.
+리소스 ARN 이 평문으로 남으므로 git 에서 제외된다.
 
 ---
 
@@ -183,14 +189,16 @@ cspm/
 │   ├── findings.py                #   ② 파싱 (입력 구조에 의존하는 유일한 곳)
 │   ├── mapping.py                 #   ③ 매핑 조회 + mode 판정
 │   ├── policy_meta.py             #   정책 파일 접근 전담 + 정합성 검사
+│   ├── runbook.py                 #   사람이 직접 조치할 때의 안내 조회
 │   ├── scoping.py                 #   ④ 실행 범위 제한 (조치 안전장치)
 │   ├── executor.py                #   ⑤⑥ Custodian 실행 + 대조
 │   ├── approval.py                #   ⑦ 승인 프롬프트 (CLI)
 │   ├── optin.py                   #   자동 실행 여부 조회 (DB 연결 전 스텁)
 │   ├── reporter.py                #   ⑧ 조치 로그
-│   ├── mapping.yml                #   판정 결과 - 어디로 보낼까
+│   ├── mapping.yml                #   판정 결과 - 어디로 보낼까 (102종)
+│   ├── runbook.yml                #   수동 조치 안내 - CLI · 콘솔 절차 (83종)
 │   ├── scope.example.yml          #   대상 계정·리전 예시 (실제 값은 scope.yml)
-│   └── policies/                  #   서비스별로 한 파일
+│   └── policies/                  #   서비스별로 한 파일 (정책 20개)
 │       ├── s3.yml  ec2.yml  iam.yml  vpc.yml  cloudtrail.yml
 ├── sample-findings.ocsf.json      # 동작 확인용 샘플
 ├── README.md
@@ -205,15 +213,16 @@ cspm/
 **산출물이 패키지 밖인 이유** — 실행할 때마다 생기는 것이라 코드 디렉토리를
 더럽히면 안 되고, 통합 시 오케스트레이터가 한곳에 모을 수 있어야 한다.
 
-### 두 설정 파일의 역할 분담
+### 세 설정 파일의 역할 분담
 
 ```
 mapping.yml       판정에 대한 서술    왜 이 mode 인가, 왜 자동화 못 하는가
 policies/*.yml    조치에 대한 서술    실행하면 무슨 일이 일어나는가
+runbook.yml       사람에 대한 안내    직접 고치려면 무엇을 어떻게 하는가
 ```
 
-**판정 근거는 `mapping.yml` 에 둔다.** `mode` 가 `manual` / `not_supported` 면
-`policy` 가 null 이라 정책 파일이 아예 없고, 그러면 근거를 적을 자리가 사라진다.
+**판정 근거는 `mapping.yml` 에 둔다.** `mode` 가 `manual` 이면 `policy` 가 null 이라
+정책 파일이 아예 없고, 그러면 근거를 적을 자리가 사라진다.
 
 ### mapping.yml
 
@@ -223,13 +232,16 @@ policies/*.yml    조치에 대한 서술    실행하면 무슨 일이 일어�
   mode: approve | manual | not_supported
   auto_eligible: true | false    # mode=approve 일 때
   auto_reason: <문자열>          # auto_eligible=false 일 때
-  scope_key: <필드명 | null>     # 계정 단위면 null
+  scope_key: <필드명 | null>     # 계정·리전 단위면 null
   risk_note: <문자열>            # 이 mode 로 판정한 근거
-  guide: <문자열>                # mode=manual 일 때만
+  runbook: <runbook.yml 의 키>   # mode=manual 일 때
 ```
 
 **`auto` 는 mode 가 아니다.** 조치 가능한 체크는 전부 `approve` 로 시작하고,
 사용자가 대시보드에서 자동 실행을 켠 뒤에야 승인 없이 돈다.
+
+**`not_supported` 는 현재 쓰지 않는다.** 담당자가 할 일이 `manual` 과 같아서
+(콘솔에서 직접 고치는 것) 굳이 나누지 않았다. 코드는 두 값을 모두 받는다.
 
 ### policies/*.yml
 
@@ -242,18 +254,18 @@ policies/*.yml    조치에 대한 서술    실행하면 무슨 일이 일어�
 policies:
   - name: s3-bucket-kms-encryption
     resource: aws.s3
-    description: SSE-KMS 기본 암호화가 설정되지 않은 버킷
+    description: 기본 암호화가 SSE-KMS 로 설정되어 있지 않은 S3 Bucket
     metadata:
       prowler_check: s3_bucket_kms_encryption
       approve:                      # 조치를 실행하면 무슨 일이 일어나는가
-        disruption: none            # none / access / traffic / recreate / destructive
-        blast_radius: resource      # resource / account / region
-        propagation_delay: immediate
+        disruption: access          # none / access / traffic / recreate / destructive
+        blast_radius: resource      # resource / account / region / multi-account
+        propagation_delay: minutes
         reversible: true
         cost_impact: low            # none / low / medium / high
       auto:                         # auto_eligible=true 일 때만
         warning: …
-        allowed_scopes: [resource, account]
+        allowed_scopes: [resource]
         rollback_cli: …
         cooldown: 24h
         post_notification: log
@@ -272,15 +284,20 @@ s3-bucket-kms-encryption   (정책 이름)
 
 #### 실행 전 정합성 검사
 
-정책을 손으로 쓰고 서로 리뷰하는 구조라, 코드가 두 가지를 대조해 경고한다.
+정책을 손으로 쓰고 서로 리뷰하는 구조라, 코드가 세 가지를 대조해 경고한다.
 
 ```
 [경고] <정책>: metadata.prowler_check 가 매핑 키와 다름
-[경고] <정책>: auto_eligible=true 인데 blast_radius='account'
+[경고] <정책>: blast_radius='org' 는 코드가 모르는 값 - 리소스 단위로 처리됨
+[경고] <정책>: auto_eligible=true 인데 reversible=False - 되돌리기 어려운 조치
 ```
 
-**자동화 자격을 결정하는 건 사람이다.** 코드는 이견만 낸다 — 기계적 조건으로는
-잡을 수 없는 위험이 있기 때문이다(예: SSE-KMS 전환의 cross-account 권한 영향).
+**자동화 자격을 결정하는 건 사람이다.** 코드는 **앞뒤가 안 맞는 선언만** 잡는다 —
+되돌릴 수 없거나 리소스를 재생성·파기하는 조치를 승인 없이 돌리겠다는 경우.
+
+"계정 단위라서 위험하다" 같은 판단은 하지 않는다. IAM 비밀번호 정책은 계정
+단위지만 즉시 누구를 막지 않고 되돌릴 수 있어 자동화해도 된다. 기계적 조건으로
+사람의 판단을 뒤집으면 경고만 쌓이고 진짜 문제가 묻힌다.
 
 #### 액션 문법 확인
 
@@ -291,6 +308,27 @@ custodian validate response/policies/s3.yml
 
 `set-statements` 에서 `remove: "*"` 를 쓰지 않는다. 기존 구문을 전부 지우면
 정당한 접근 허용까지 날아가므로 Deny 구문만 얹는다.
+
+### runbook.yml
+
+Custodian 으로 조치할 수 없는 건(`mode: manual`)의 안내다. `mapping.yml` 의
+`runbook` 키가 여기를 가리킨다.
+
+```yaml
+iam_root_mfa_enabled:
+  method: console                 # cli_or_console / console / guide
+  description: Enable **MFA** for the root user …
+  command_template: null          # 복붙할 CLI. 없으면 null
+  console_steps:
+    - Sign in to the AWS Management Console as the root user …
+    - Open the account menu and click "Security credentials"
+  docs_url: https://hub.prowler.com/check/iam_root_mfa_enabled
+```
+
+Prowler 도 `remediation.desc` 로 안내를 주지만 영문 원문이고 CLI 명령이 없다.
+**runbook 이 있으면 그것을 우선하고, 없으면 Prowler 안내로 넘어간다.**
+
+파일이 없어도 실행을 막지 않는다. 안내가 빠질 뿐 판정은 그대로 된다.
 
 ---
 
@@ -348,7 +386,7 @@ custodian validate response/policies/s3.yml
 
 ```
 approve         → 실행 후 사람에게 확인
-manual          → 실행 안 함. reason 에 조치 안내
+manual          → 실행 안 함. reason 에 조치 안내 (runbook)
 not_supported   → 실행 안 함. reason 에 조치 안내
 매핑에 없음      → unmapped
 ```
@@ -356,12 +394,12 @@ not_supported   → 실행 안 함. reason 에 조치 안내
 finding 에 두 가지가 붙는다. **출처가 다른 데이터라 섞지 않는다.**
 
 ```python
-finding["mapping"]      # mapping.yml    - mode · scope_key · risk_note · guide
+finding["mapping"]      # mapping.yml    - mode · scope_key · risk_note · runbook
 finding["policy_meta"]  # policies/*.yml - metadata.approve · metadata.auto
 ```
 
-`manual` 과 `not_supported` 는 담당자가 할 일이 같으므로(콘솔에서 직접 고치는 것)
-**둘 다 조치 안내를 받는다.** `guide` → Prowler 의 `remediation.desc` 순으로 찾는다.
+`manual` 은 담당자가 콘솔에서 직접 고치는 것이므로 **조치 안내를 받는다.**
+`runbook.yml` → Prowler 의 `remediation.desc` 순으로 찾는다.
 
 ### ④ 범위 제한 — 대상 리소스만 남긴다
 
@@ -396,13 +434,14 @@ filters:
 
 - 어떤 필드로 좁힐지는 `mapping.yml` 의 `scope_key` 가 정한다 (S3 는 `Name`,
   EC2 는 `InstanceId`). ARN 의 마지막 조각과 대조한다.
-- `blast_radius: account` 인 체크는 **범위 제한을 하지 않는다.** 계정 설정 하나를
-  보는 것이라 리소스 필터를 얹으면 판정이 어긋난다.
+- **계정·리전 단위 체크는 범위 제한을 하지 않는다.** 설정 하나를 보는 것이라
+  리소스 필터를 얹으면 판정이 어긋난다. `blast_radius` 가
+  `account` · `region` · `multi-account` 면 여기 해당한다.
 - `scope_key` 가 없으면 경고를 출력하고 계정 전체를 대상으로 돈다.
 
-> **알려진 한계** — 계정 단위 체크는 범위 제한이 없어 `resources.json` 에 findings
-> 에 없는 리소스가 섞인다. 승인 화면의 경고가 유일한 방어이고, 자동 실행에는
-> 그 눈이 없다. 그래서 `blast_radius: account` 는 자동화 자격에서 제외한다.
+> **알려진 한계** — 계정·리전 단위 체크는 범위 제한이 없어 `resources.json` 에
+> findings 에 없는 리소스가 섞인다. 승인 화면의 경고가 유일한 방어이고, 자동
+> 실행에는 그 눈이 없다.
 
 ### ⑤ 실행 — 정책당 1회
 
@@ -430,17 +469,22 @@ custodian run -s out out/_scoped/s3-bucket-kms-encryption.yml --dryrun
 **Prowler 스캔은 과거 시점의 사진이고, Custodian 실행은 지금 이 순간의 상태다.**
 
 ```
-1. 계정이 다름              → account_mismatch
-2. 계정 단위 체크            → 리소스 유무로 판정
-3. ARN 을 못 뽑음           → arn_not_found
-4. finding 의 ARN 이 결과에 있음 → still_open (조치 대상 확정)
-5. 없음                     → already_fixed
+1. 계정이 다름                   → account_mismatch
+2. 계정·리전 단위 체크            → 리소스 유무로 판정
+3. ARN 을 못 뽑음                → arn_not_found
+4. finding 의 ARN 이 결과에 있음  → still_open (조치 대상 확정)
+5. 없음                          → already_fixed
 ```
 
 **1번이 맨 앞인 이유** — 조회 대상 계정은 findings 가 아니라 **실행자의 자격증명**이
 정한다. 계정이 다르면 ARN 이 안 맞는 게 당연한데 그걸 `already_fixed` 로 남기면
 "이미 조치됨"으로 오독된다. Custodian 이 `metadata.json` 에 남기는
 `config.account_id` 를 finding 의 `account_uid` 와 비교한다.
+
+**2번은 목록으로 관리한다.** 처음에는 `account` 만 특별 취급했는데 `region` 이
+추가되면서 같은 오판이 다시 생겼다. `policy_meta.ACCOUNT_SCOPED` 에 모아 두었고
+새 값이 생기면 여기 추가한다. `blast_radius` 가 비어 있으면 리소스 단위로 둔다 —
+모르는 것을 계정 단위로 취급하면 "리소스가 걸렸으니 문제 있음"으로 단정하게 된다.
 
 ①의 범위 필터와 역할이 다르다. **①은 사전 차단, ⑥은 자격증명이 잘못됐을 때의 안전망**이다.
 
@@ -449,7 +493,7 @@ custodian run -s out out/_scoped/s3-bucket-kms-encryption.yml --dryrun
 | | |
 |---|---|
 | 입력 | `mode: approve` 이면서 `still_open` 인 건 |
-| 출력 | `approved` / `declined` / `approval_pending` |
+| 출력 | `approved` / `declined` / `approval_pending` / `auto_approved` |
 
 `still_open` 인 건만 묻는다. 이미 해소됐거나 대조가 안 된 건은 물을 이유가 없다.
 
@@ -468,13 +512,17 @@ custodian run -s out out/_scoped/s3-bucket-kms-encryption.yml --dryrun
 
 ①~⑦ 에서 걸러진 건까지 **전부** 기록한다. **레코드 수는 항상 FAIL finding 수와 같다.**
 
-레코드는 세 곳에서 모인다.
+레코드 21필드는 네 곳에서 모인다.
 
 ```
 finding          check_id · resource_uid · account_uid · severity · status · reason
 mapping.yml      mode · risk_note · auto_eligible · auto_reason
 policies/*.yml   disruption · blast_radius · propagation_delay · reversible · cost_impact
+runbook.yml      runbook (method · command_template · console_steps · docs_url)
 ```
+
+**`runbook` 은 구조 그대로 담는다.** `reason` 에 문자열로도 들어가지만, 웹 화면이
+CLI 복사 버튼과 콘솔 절차를 나눠 그리려면 구조가 필요하기 때문이다.
 
 ### Phase 2 — 승인된 건 조치
 
@@ -500,6 +548,7 @@ policies/*.yml   disruption · blast_radius · propagation_delay · reversible �
 - **매핑 재조회** — 승인 이후 정책이나 위험도 판정이 바뀌었을 수 있다
 
 `apply=False` 가 기본이라 **조치 직전까지만 가고 `ready` 로 남는다.**
+`apply=True` 로 부르면 범위를 한 번 더 좁혀 `still_open` 인 건만 조치한다.
 
 ## status 값
 
