@@ -112,33 +112,36 @@ def check_blast_radius(policy_name, meta):
     )
 
 
-# auto 승격이 안전하려면 정책 속성이 만족해야 하는 조건.
+# 자동 실행 선언과 명백히 모순되는 조치 속성.
 #
 # **자격을 결정하는 건 사람이다.** mapping.yml 의 auto_eligible 이 판정 결과이고,
-# 여기는 그 판정에 이견이 있을 때 알려주는 역할만 한다. 기계적 조건만으로는
-# 잡을 수 없는 위험이 있기 때문이다 - 예를 들어 SSE-KMS 전환은 세 조건을 모두
-# 만족하지만 cross-account 접근 주체의 KMS 권한 영향은 코드가 확인할 수 없다.
+# 여기는 앞뒤가 안 맞는 선언만 잡는다.
 #
-# rollback_cli 는 조건에서 뺐다. 정책 작성 중에는 metadata.auto 블록이 없는
-# 경우가 많아 경고만 쌓인다. 실조치를 켤 때 다시 넣는다.
-AUTO_REQUIRED = {
-    "reversible": True,
-    "blast_radius": "resource",
-    "disruption": "none",
+# 처음에는 "reversible·blast_radius·disruption 세 조건을 모두 만족해야 true" 였다.
+# 그런데 IAM 비밀번호 정책은 계정 단위(blast_radius=account)지만 즉시 누구를
+# 막지 않고 되돌릴 수 있어 자동화해도 된다. 규칙이 매 실행마다 경고 8줄을
+# 뱉었고, 그러면 진짜 경고가 묻힌다.
+#
+# 그래서 "계정 단위라서 위험하다" 같은 판단은 사람에게 맡기고, 코드는
+# **되돌릴 수 없거나 리소스를 재생성·파기하는데 무인으로 돌리겠다**는
+# 자기모순만 잡는다.
+AUTO_DISQUALIFY = {
+    "reversible": (False,),
+    "disruption": ("recreate", "destructive"),
 }
 
 
 def check_auto_claim(policy_name, declared, meta):
-    """mapping.yml 의 auto_eligible 이 정책 속성과 맞는지 본다.
+    """mapping.yml 의 auto_eligible 이 정책 속성과 모순되는지 본다.
 
-    자동화하겠다고 선언했는데 되돌릴 수 없거나, 계정 전체에 영향을 주거나,
-    서비스가 중단되는 조치면 알린다. 정책을 손으로 쓰고 서로 리뷰하는 구조라
-    선언과 속성이 어긋나는 실수를 여기서 잡는다.
+    되돌릴 수 없는 조치나 리소스를 재생성·파기하는 조치를 승인 없이 돌리겠다는
+    선언은 앞뒤가 맞지 않는다. 정책을 손으로 쓰고 서로 리뷰하는 구조라
+    이런 실수를 실행 전에 잡는다.
 
     metadata.approve 가 아직 없는 정책은 건너뛴다. 작성 중인 정책에
     경고를 쏟으면 진짜 문제가 묻힌다.
 
-    반환: 경고 메시지 / 이견 없으면 None
+    반환: 경고 메시지 / 모순이 없으면 None
     """
     if not declared:
         return None
@@ -147,14 +150,17 @@ def check_auto_claim(policy_name, declared, meta):
     if not approve:
         return None
 
-    unmet = [
-        f"{key}={approve.get(key)!r} (필요: {want!r})"
-        for key, want in AUTO_REQUIRED.items()
-        if approve.get(key) != want
+    conflicts = [
+        f"{key}={approve.get(key)!r}"
+        for key, bad in AUTO_DISQUALIFY.items()
+        if approve.get(key) in bad
     ]
-    if not unmet:
+    if not conflicts:
         return None
-    return f"{policy_name}: auto_eligible=true 인데 {' / '.join(unmet)}"
+    return (
+        f"{policy_name}: auto_eligible=true 인데 {' / '.join(conflicts)} - "
+        f"승인 없이 돌리기에는 되돌리기 어려운 조치"
+    )
 
 
 def check_prowler_link(policy_name, check_id):

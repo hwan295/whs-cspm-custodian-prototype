@@ -17,7 +17,7 @@ from .approval import confirm_each, print_guidance
 from .config import ARN_FIELDS, CUSTODIAN_TIMEOUT, OUT_DIR, WORK_DIR
 from .findings import dig
 from .mapping import build_reason
-from .optin import is_opted_in
+from .optin import describe_source, is_opted_in
 from .policy_meta import is_account_scoped
 from .scoping import build_scoped_policy
 
@@ -191,6 +191,9 @@ def execute_policies(findings_by_policy):
     (finding 마다 실행하면 같은 조회를 반복하게 되어 비효율).
     """
     print(f"[3/4] Custodian dryrun 실행: 정책 {len(findings_by_policy)}개")
+    # 자동 실행이 켜져 있는지 한 번 알린다. 아무것도 자동으로 나가지 않는다는
+    # 사실을 실행할 때마다 눈으로 확인할 수 있어야 한다
+    print(f"      자동 실행 설정: {describe_source()}")
 
     for policy_name, findings in findings_by_policy.items():
         print(f"  - {policy_name} (finding {len(findings)}건)")
