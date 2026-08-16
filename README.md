@@ -3,14 +3,22 @@
 Prowler(탐지)와 Cloud Custodian(조치)을 잇는 파이프라인.
 
 Prowler 가 findings 를 뱉으면, 해당 체크에 대응하는 Custodian 정책을 찾아
-dryrun 으로 실행하고 결과를 조치 로그로 남긴다.
+dryrun 으로 실행하고, 사람의 승인을 받아 조치한다.
 
 Custodian 은 findings 를 입력으로 받지 않고 AWS 를 직접 조회하는 도구다.
 따라서 두 도구의 연결점은 **`Prowler 의 metadata.event_code` ↔ `Custodian 정책 이름`**
 매핑(`mapping.yml`)뿐이다.
 
-**실제 조치는 하지 않는다.** 정책에 `actions` 가 있지만 실행은 항상 `--dryrun` 이라
-"무엇이 바뀔지"만 출력된다.
+**실행이 두 단계로 나뉜다.** 승인이 비동기이기 때문이다 — CLI 는 그 자리에서
+물어보지만 웹은 실행이 끝난 뒤 사람이 나중에 누른다.
+
+```
+Phase 1  run()        무엇을 조치해야 하는지 판정한다. 조치는 하지 않는다
+Phase 2  remediate()  승인된 건만 받아 다시 검증하고 조치한다
+```
+
+**실제 조치는 아직 나가지 않는다.** 정책에 `actions` 가 있지만 실행은 항상
+`--dryrun` 이고, Phase 2 도 `apply=False` 가 기본이다.
 
 ---
 
@@ -26,7 +34,7 @@ Custodian 은 findings 를 입력으로 받지 않고 AWS 를 직접 조회하�
 pip install pyyaml c7n
 ```
 
-### 실행
+### Phase 1 — 판정
 
 ```bash
 python -m response <prowler-output.ocsf.json>
@@ -38,24 +46,35 @@ python -m response <prowler-output.ocsf.json>
 python -m response sample-findings.ocsf.json
 ```
 
-**라이브러리로 부를 수도 있다.** 통합 파이프라인에서 findings 를 파일이 아니라
-DB·API 로 받는 경우를 위해 진입점을 둘로 나눠 두었다.
-
-```python
-from response import run, run_raw
-
-records = run(findings)          # 이미 파싱된 dict 리스트
-records = run_raw(raw_findings)  # OCSF 원본 리스트
-```
-
-`run()` 은 파일을 읽지도 로그를 저장하지도 않는다. 결과 레코드만 돌려주므로
-입력과 출력을 호출부가 정할 수 있다.
-
-**산출물 위치**는 실행한 디렉토리 기준이다. `CSPM_WORK_DIR` 로 바꿀 수 있다.
+**대화형이면 `approve` 건마다 물어보고**, 파이프·CI 처럼 비대화형이면 묻지 않고
+`approval_pending` 으로 남긴다. 웹 연동은 이 비대화형 경로를 쓴다.
 
 ```bash
-CSPM_WORK_DIR=/tmp/cspm python -m response findings.json   # /tmp/cspm/out, /tmp/cspm/logs
+python -m response findings.json < /dev/null    # 묻지 않고 승인 대기로
+python -m response --yes findings.json          # 전부 승인
+python -m response --no  findings.json          # 전부 거부
 ```
+
+### Phase 2 — 승인된 건 조치
+
+라이브러리로만 부른다. 웹이나 오케스트레이터가 승인 목록을 넘긴다.
+
+```python
+from response import run, remediate
+
+records = run(findings)                     # Phase 1
+pending = [r for r in records if r["status"] == "approval_pending"]
+
+# ... 사람이 웹에서 승인하고 approved_at 을 붙여서 돌려준다 ...
+
+results = remediate(approvals)              # Phase 2 (재검증만)
+results = remediate(approvals, apply=True)  # 실조치까지 (아직 쓰지 않는다)
+```
+
+입력은 **`check_id` · `resource_uid` · `account_uid`** 만 있으면 된다. 정책·위험도·범위는
+조치 시점에 다시 읽는다. 승인 이후 매핑이나 정책이 바뀌었을 수 있기 때문이다.
+
+**`approved_at` 을 함께 보내야 한다.** 없으면 승인 만료 검사가 통과된다.
 
 ### 조치 대상 범위 설정
 
@@ -76,78 +95,77 @@ export CSPM_SCOPE_REGIONS=ap-northeast-2
 우선순위는 **환경변수 > `scope.yml` > `scope.example.yml`** 이고,
 어느 출처를 썼는지 실행할 때 콘솔에 표시된다.
 
-### 승인 프롬프트
+**산출물 위치**는 실행한 디렉토리 기준이다. `CSPM_WORK_DIR` 로 바꿀 수 있다.
 
-`mode: approve` 인 체크는 dryrun 으로 대상을 확인한 뒤 **리소스마다** 물어본다.
+```bash
+CSPM_WORK_DIR=/tmp/cspm python -m response findings.json   # /tmp/cspm/out, /tmp/cspm/logs
+```
+
+### 승인 프롬프트 (CLI)
+
+dryrun 으로 대상을 확인한 뒤 **리소스마다** 물어본다.
 
 ```
   ──────────────────────────────────────────────────────────────────
   승인 요청  ·  s3_bucket_kms_encryption  (Medium)
   ──────────────────────────────────────────────────────────────────
   조치   set-bucket-encryption(crypto=aws:kms, enabled=True)
-  주의   신규 객체만 영향. 기존 객체는 그대로이며 KMS 요청 비용이 발생한다
-  영향   중단=none · 범위=resource
+  주의   SSE-KMS 기본 암호화 적용 후 새로 저장되는 객체는 KMS 권한이 필요할 수 있으며 …
+  영향   중단=access · 범위=resource
 
-  대상 1건 - 건별로 확인합니다
+  대상 2건 - 건별로 확인합니다
 
-  [1/1] arn:aws:s3:::example-app-bucket  [ap-northeast-2]
+  [1/2] arn:aws:s3:::example-app-bucket  [ap-northeast-2]
           조치할까요? (y/n, a=나머지 모두 승인, q=나머지 모두 거부)
 ```
 
 **건별로 묻는 이유** — 같은 체크에 걸렸어도 리소스마다 사정이 다르다. 한 버킷은
-고쳐도 되지만 다른 버킷은 정적 웹사이트를 호스팅 중일 수 있다. 한 번의 `y` 로
-전부 나가면 안 된다.
+고쳐도 되지만 다른 버킷은 정적 웹사이트를 호스팅 중일 수 있다.
 
-- `y` → `approved` · `n` → `declined` (조치 방법과 참고 링크 출력)
-- `a` → 나머지 전부 승인 · `q` → 나머지 전부 거부
-- **비대화형** (파이프·CI) → 묻지 않고 `approval_pending`. 자동 실행 중에 입력을
-  기다리며 멈추면 안 되기 때문이다
+`y` 승인 · `n` 거부(조치 방법 출력) · `a` 나머지 모두 승인 · `q` 나머지 모두 거부.
 
-```bash
-python -m response --yes findings.json    # 전부 승인
-python -m response --no  findings.json    # 전부 거부
+**정책에 걸렸지만 finding 이 없는 리소스가 있으면 경고가 함께 뜬다.**
+
 ```
+  [경고] finding 이 없는 리소스 4건도 함께 조치됩니다
+         · arn:aws:s3:::marketing-static-site
+         · arn:aws:s3:::team-terraform-state
+```
+
+승인하면 이것들도 같이 바뀐다. 계정 단위 체크에서 주로 발생한다(④ 참고).
 
 ### 실행 결과
 
-`sample-findings.ocsf.json` 은 더미 계정(`123456789012`)으로 되어 있다.
-범위 설정의 계정이 다르면 **전부 `out_of_scope`** 로 나온다.
-
 ```
-[1/4] findings 파싱: sample-findings.ocsf.json
-      전체 finding 7건
-      FAIL 6건 추출
+[1/4] findings 파싱: output/prowler-output-…ocsf.json
+      전체 finding 37건
+      FAIL 18건 추출
       범위 [환경변수] 계정 123456789012 / 리전 제한 없음
 [2/4] 매핑 로드: .../mapping.yml
-      매핑 항목 5건
-      [주의] s3_bucket_kms_encryption: 신규 객체만 영향. KMS 요청 비용이 발생한다
-      실행 대상 4건 / 제외 2건
+      매핑 항목 19건
+      [주의] s3_bucket_kms_encryption: SSE-KMS 기본 암호화 적용 후 …
+      실행 대상 5건 / 제외 13건
 [3/4] Custodian dryrun 실행: 정책 3개
-  - s3-bucket-secure-transport-policy (finding 2건)
+  - s3-bucket-kms-encryption (finding 2건)
       대상 2건으로 범위 제한 (Name)
       dryrun 대상 리소스 2건 / ARN 확보 2건
       조회 계정 123456789012
-  - s3-account-level-public-access-blocks (finding 1건)
-      계정 단위 체크 - 범위 제한 없이 실행
-      dryrun 대상 리소스 5건 / ARN 확보 5건
-  ...
-[4/4] 조치 로그 저장: .../logs/actions-20260812-155319.json
+[4/4] 조치 로그 저장: .../logs/actions-20260816-130239.json
 
 === 요약 ===
-  approved                  2건
-  still_open                2건
-  not_supported             1건
-  unmapped                  1건
-  합계                      6건
+  approved                  5건
+  unmapped                 13건
+  합계                     18건
 ```
 
 ### Prowler 로 findings 만들기
 
 ```bash
-prowler aws --output-formats json-ocsf --services s3
+prowler aws --output-formats json-ocsf --services s3 ec2 iam vpc cloudtrail
 ```
 
-`output/` 아래 생기는 `*.ocsf.json` 을 인자로 넘기면 된다.
+`output/` 아래 생기는 `*.ocsf.json` 을 인자로 넘기면 된다. `output/` 은 계정 ID 와
+리소스 이름이 평문으로 남으므로 git 에서 제외된다.
 
 ---
 
@@ -156,42 +174,92 @@ prowler aws --output-formats json-ocsf --services s3
 ```
 cspm/
 ├── response/                      # 통합 시 이 폴더를 통째로 옮긴다
-│   ├── __init__.py                #   run · run_raw 를 공개
+│   ├── __init__.py                #   run · run_raw · remediate 를 공개
 │   ├── __main__.py                #   python -m response 진입
-│   ├── run.py                     #   파이프라인 조립 + CLI
+│   ├── run.py                     #   Phase 1 조립 + CLI
+│   ├── remediation.py             #   Phase 2 - 승인된 건 재검증 후 조치
 │   ├── config.py                  #   경로·상수
 │   ├── scope.py                   #   ① 조치 대상 범위 필터
 │   ├── findings.py                #   ② 파싱 (입력 구조에 의존하는 유일한 곳)
 │   ├── mapping.py                 #   ③ 매핑 조회 + mode 판정
-│   ├── scoping.py                 #   ④ 실행 범위 제한 (실조치 안전장치)
+│   ├── policy_meta.py             #   정책 파일 접근 전담 + 정합성 검사
+│   ├── scoping.py                 #   ④ 실행 범위 제한 (조치 안전장치)
 │   ├── executor.py                #   ⑤⑥ Custodian 실행 + 대조
-│   ├── approval.py                #   ⑦ 승인 프롬프트
+│   ├── approval.py                #   ⑦ 승인 프롬프트 (CLI)
+│   ├── optin.py                   #   자동 실행 여부 조회 (DB 연결 전 스텁)
 │   ├── reporter.py                #   ⑧ 조치 로그
-│   ├── mapping.yml                #   event_code -> 정책 이름 + 조치 위험도
+│   ├── mapping.yml                #   판정 결과 - 어디로 보낼까
 │   ├── scope.example.yml          #   대상 계정·리전 예시 (실제 값은 scope.yml)
 │   └── policies/                  #   서비스별로 한 파일
-│       └── s3.yml                 #     S3 정책 3종
-├── sample-findings.ocsf.json      # 동작 확인용 샘플 findings
+│       ├── s3.yml  ec2.yml  iam.yml  vpc.yml  cloudtrail.yml
+├── sample-findings.ocsf.json      # 동작 확인용 샘플
 ├── README.md
+├── output/                        # Prowler 결과 (git 제외)
 ├── out/                           # Custodian dryrun 결과 (자동 생성)
 └── logs/                          # 조치 로그 (자동 생성)
 ```
 
-**설정(`mapping.yml`, `policies/`)이 패키지 안에 있는 이유** — 코드와 짝이라 함께
-움직여야 한다. 떨어뜨리면 통합할 때 한쪽만 옮겨져 매핑이 깨진다.
+**설정이 패키지 안에 있는 이유** — 코드와 짝이라 함께 움직여야 한다. 떨어뜨리면
+통합할 때 한쪽만 옮겨져 매핑이 깨진다.
 
-**산출물(`out/`, `logs/`)이 패키지 밖인 이유** — 실행할 때마다 생기는 것이라
-코드 디렉토리를 더럽히면 안 되고, 통합 시 오케스트레이터가 한곳에 모을 수 있어야 한다.
+**산출물이 패키지 밖인 이유** — 실행할 때마다 생기는 것이라 코드 디렉토리를
+더럽히면 안 되고, 통합 시 오케스트레이터가 한곳에 모을 수 있어야 한다.
 
-### 정책 파일
+### 두 설정 파일의 역할 분담
 
-**서비스별로 한 파일에 모은다.** `policies/s3.yml` 에 S3 정책이 전부 들어 있다.
-정책이 100개로 늘어도 파일은 서비스 수만큼만 생겨서 찾기 쉽다.
+```
+mapping.yml       판정에 대한 서술    왜 이 mode 인가, 왜 자동화 못 하는가
+policies/*.yml    조치에 대한 서술    실행하면 무슨 일이 일어나는가
+```
+
+**판정 근거는 `mapping.yml` 에 둔다.** `mode` 가 `manual` / `not_supported` 면
+`policy` 가 null 이라 정책 파일이 아예 없고, 그러면 근거를 적을 자리가 사라진다.
+
+### mapping.yml
+
+```yaml
+<check_id>:
+  policy: <정책 이름 | null>     # 생략하면 언더바를 하이픈으로 바꾼 이름
+  mode: approve | manual | not_supported
+  auto_eligible: true | false    # mode=approve 일 때
+  auto_reason: <문자열>          # auto_eligible=false 일 때
+  scope_key: <필드명 | null>     # 계정 단위면 null
+  risk_note: <문자열>            # 이 mode 로 판정한 근거
+  guide: <문자열>                # mode=manual 일 때만
+```
+
+**`auto` 는 mode 가 아니다.** 조치 가능한 체크는 전부 `approve` 로 시작하고,
+사용자가 대시보드에서 자동 실행을 켠 뒤에야 승인 없이 돈다.
+
+### policies/*.yml
+
+**서비스별로 한 파일**에 모은다. 정책이 100개로 늘어도 파일은 서비스 수만큼이다.
 
 > 실행할 때는 이 파일을 그대로 넘기지 않는다. 정책 하나만 뽑아 별도 파일로 쓴다
-> (동작 방식 ④). 그래서 파일로 묶는 이득은 **정리** 뿐이고 실행 성능과는 무관하다.
+> (④ 참고). 파일로 묶는 이득은 **정리** 뿐이고 실행 성능과는 무관하다.
 
-정책은 **필터(무엇이 위반인가) + 액션(어떻게 고치는가)** 로 이뤄진다.
+```yaml
+policies:
+  - name: s3-bucket-kms-encryption
+    resource: aws.s3
+    description: SSE-KMS 기본 암호화가 설정되지 않은 버킷
+    metadata:
+      prowler_check: s3_bucket_kms_encryption
+      approve:                      # 조치를 실행하면 무슨 일이 일어나는가
+        disruption: none            # none / access / traffic / recreate / destructive
+        blast_radius: resource      # resource / account / region
+        propagation_delay: immediate
+        reversible: true
+        cost_impact: low            # none / low / medium / high
+      auto:                         # auto_eligible=true 일 때만
+        warning: …
+        allowed_scopes: [resource, account]
+        rollback_cli: …
+        cooldown: 24h
+        post_notification: log
+    filters: …
+    actions: …
+```
 
 #### 이름 규칙 — check_id 의 언더바를 하이픈으로
 
@@ -200,28 +268,19 @@ s3_bucket_kms_encryption   (Prowler check_id)
 s3-bucket-kms-encryption   (정책 이름)
 ```
 
-이 규칙 덕분에 `mapping.yml` 에서 `policy` 를 **생략해도 코드가 찾아낸다.**
-이름이 어긋나 매핑이 깨지는 실수가 줄어든다. 규칙과 다른 이름을 쓸 때만 명시한다.
-
 정책 이름의 첫 조각이 곧 파일 이름이다. `s3-bucket-kms-encryption` → `policies/s3.yml`
 
-#### metadata — 정책만 봐도 알 수 있게
+#### 실행 전 정합성 검사
 
-Custodian 이 지원하는 정식 필드라 `validate` 를 통과하고 코드로 파싱할 수 있다.
+정책을 손으로 쓰고 서로 리뷰하는 구조라, 코드가 두 가지를 대조해 경고한다.
 
-```yaml
-  - name: s3-bucket-kms-encryption
-    resource: aws.s3
-    description: SSE-KMS 기본 암호화가 설정되지 않은 버킷
-    metadata:
-      prowler_check: s3_bucket_kms_encryption      # 출처 체크
-      remediation_summary: 기본 암호화를 SSE-KMS 로 활성화한다
-      note: |
-        판단 근거나 주의사항
+```
+[경고] <정책>: metadata.prowler_check 가 매핑 키와 다름
+[경고] <정책>: auto_eligible=true 인데 blast_radius='account'
 ```
 
-`mapping.yml` 에 흩어져 있는 정보를 정책 옆에도 남겨, 정책 파일만 열어도
-무엇을 왜 하는지 알 수 있다.
+**자동화 자격을 결정하는 건 사람이다.** 코드는 이견만 낸다 — 기계적 조건으로는
+잡을 수 없는 위험이 있기 때문이다(예: SSE-KMS 전환의 cross-account 권한 영향).
 
 #### 액션 문법 확인
 
@@ -237,11 +296,16 @@ custodian validate response/policies/s3.yml
 
 ## 동작 방식
 
-한 번 실행하면 아래 순서로 돈다. **각 단계는 앞 단계의 출력만 보고 판단한다.**
+### Phase 1 — 판정
 
 ```
 ① 범위 필터 → ② 파싱 → ③ 매핑 → ④ 범위 제한 → ⑤ 실행 → ⑥ 대조 → ⑦ 승인 → ⑧ 로그
 ```
+
+**단위가 두 번 바뀐다.** ①②③ 은 finding 건별, ③ 끝에서 정책별로 묶이고,
+④⑤⑥ 은 정책 단위, ⑦⑧ 은 다시 건별이다.
+
+같은 체크에 걸린 finding 100건이어도 **Custodian 실행은 1회**다.
 
 ### ① 범위 필터 — 우리 계정인가
 
@@ -251,13 +315,6 @@ custodian validate response/policies/s3.yml
 | 출력 | 대상 계정·리전의 finding 만 |
 
 대상이 아닌 건은 `out_of_scope` 로 기록하고 이후 단계를 건너뛴다.
-설정은 **환경변수 → `scope.yml` → `scope.example.yml`** 순으로 읽는다.
-
-```
-      범위 [scope.yml] 계정 123456789012 / 리전 ap-northeast-2
-      범위 밖 2건 제외
-```
-
 계정 ID 는 코드에 하드코딩하지 않는다. 실제 값이 든 `scope.yml` 은 git 에서 제외되고,
 저장소에는 더미가 든 `scope.example.yml` 만 올라간다.
 
@@ -268,7 +325,7 @@ custodian validate response/policies/s3.yml
 | 입력 | Prowler JSON-OCSF |
 | 출력 | 평평한 dict 리스트 |
 
-`status_code == "FAIL"` 인 건만 남기고 12개 필드를 뽑는다.
+`status_code == "FAIL"` 인 건만 남기고 필드를 뽑는다.
 **입력 구조에 의존하는 곳은 여기뿐**이라, 스캔 파트의 형식이 바뀌면
 `FIELD_PATHS` 만 갈아끼우면 된다.
 
@@ -278,34 +335,33 @@ custodian validate response/policies/s3.yml
 | `resource_uid` | `resources[0].uid` |
 | `account_uid` | `cloud.account.uid` |
 | `finding_uid` | `finding_info.uid` |
-| `severity` · `region` · `resource_type` · `service` · `scan_time` | 각 대응 경로 |
 | `remediation_desc` · `remediation_refs` | `remediation.desc` · `remediation.references` |
 
 없는 필드는 `None` 으로 두고 경고를 출력한다. 파싱 실패로 중단하지 않는다.
-`remediation_*` 은 선택 필드라 없어도 경고하지 않는다.
 
-### ③ 매핑 — 어떻게 조치할 것인가
+### ③ 매핑 — 어디로 보낼 것인가
 
 | | |
 |---|---|
 | 입력 | `check_id` |
-| 출력 | 정책 이름 + 조치 방식(`mode`) |
-
-`mapping.yml` 을 조회해 `mode` 를 확정한다. **`auto` 와 `approve` 만 다음 단계로
-넘어가고**, 나머지는 여기서 상태가 확정된다.
+| 출력 | 정책 이름 + `mode` + 조치 속성 |
 
 ```
-auto            → 실행
 approve         → 실행 후 사람에게 확인
 manual          → 실행 안 함. reason 에 조치 안내
-not_supported   → 실행 안 함. reason 에 불가 사유
+not_supported   → 실행 안 함. reason 에 조치 안내
 매핑에 없음      → unmapped
 ```
 
-**`mode` 는 조치의 위험도(`disruption`)가 결정한다. severity 는 관여하지 않는다.**
-severity 는 "문제가 얼마나 심각한가"이고 disruption 은 "고치는 행위가 얼마나
-위험한가"다. RDS 암호화는 severity 가 높지만 조치하려면 DB 를 재생성해야 해서
-자동으로 돌릴 수 없다. 값의 정의는 `mapping.yml` 주석에 있다.
+finding 에 두 가지가 붙는다. **출처가 다른 데이터라 섞지 않는다.**
+
+```python
+finding["mapping"]      # mapping.yml    - mode · scope_key · risk_note · guide
+finding["policy_meta"]  # policies/*.yml - metadata.approve · metadata.auto
+```
+
+`manual` 과 `not_supported` 는 담당자가 할 일이 같으므로(콘솔에서 직접 고치는 것)
+**둘 다 조치 안내를 받는다.** `guide` → Prowler 의 `remediation.desc` 순으로 찾는다.
 
 ### ④ 범위 제한 — 대상 리소스만 남긴다
 
@@ -314,16 +370,19 @@ severity 는 "문제가 얼마나 심각한가"이고 disruption 은 "고치는 
 | 입력 | 정책 이름 + 대상 finding 묶음 |
 | 출력 | `out/_scoped/<정책>.yml` (정책 하나만 담긴 문서) |
 
-**Custodian 은 정책을 계정 전체에 대해 돌린다.** 원본 정책을 그대로 실행하면
-findings 에 없는 리소스까지 대상이 된다. dryrun 이면 무해하지만 실조치를 켜는 순간
-**의도하지 않은 리소스까지 고치게 된다.**
+**Custodian 은 목록을 받지 못한다. 조건만 받는다.**
 
-그래서 실행 전에 서비스 파일에서 **정책 하나만 꺼내고**, 대상 리소스 이름을 필터로
-얹은 임시 정책을 만든다.
+```
+못 함:      [bucket-a, bucket-b] 를 대상으로 해라
+할 수 있음:  암호화 안 된 버킷을 대상으로 해라
+```
+
+그대로 실행하면 계정의 **모든** 위반 리소스가 걸린다. 그래서 우리 대상만 통과하는
+조건을 맨 앞에 끼워 넣는다.
 
 ```yaml
 filters:
-  - type: value          # <- 자동으로 맨 앞에 끼워 넣는다
+  - type: value          # <- 자동으로 삽입
     key: Name
     op: in
     value: [example-bucket]
@@ -332,16 +391,18 @@ filters:
       ...
 ```
 
-- 어떤 필드로 좁힐지는 `mapping.yml` 의 `scope_key` 로 정한다 (S3 는 `Name`,
+**Custodian 은 필터에 걸린 걸 전부 조치한다. 실행 후 선별이 불가능하므로
+이 단계가 유일한 방어선이다.**
+
+- 어떤 필드로 좁힐지는 `mapping.yml` 의 `scope_key` 가 정한다 (S3 는 `Name`,
   EC2 는 `InstanceId`). ARN 의 마지막 조각과 대조한다.
 - `blast_radius: account` 인 체크는 **범위 제한을 하지 않는다.** 계정 설정 하나를
   보는 것이라 리소스 필터를 얹으면 판정이 어긋난다.
 - `scope_key` 가 없으면 경고를 출력하고 계정 전체를 대상으로 돈다.
-  **실조치 단계에서는 반드시 지정해야 한다.**
 
 > **알려진 한계** — 계정 단위 체크는 범위 제한이 없어 `resources.json` 에 findings
-> 에 없는 리소스가 섞인다. 그 초과분은 로그에 남지 않는다. dryrun 이라 무해하지만
-> 실조치를 켜기 전에 반드시 처리해야 한다.
+> 에 없는 리소스가 섞인다. 승인 화면의 경고가 유일한 방어이고, 자동 실행에는
+> 그 눈이 없다. 그래서 `blast_radius: account` 는 자동화 자격에서 제외한다.
 
 ### ⑤ 실행 — 정책당 1회
 
@@ -350,21 +411,14 @@ filters:
 | 입력 | 범위를 좁힌 정책 |
 | 출력 | `out/<정책>/resources.json` · `metadata.json` |
 
-같은 정책에 걸린 findings 를 묶어 **정책당 1회만** 실행한다. Custodian 은 finding 을
-입력으로 받지 않고 AWS 전체를 조회하므로, finding 마다 실행하면 완전히 같은 조회를
-반복하게 된다. findings 100건이 같은 체크면 실행은 1회다.
-
 ```bash
 custodian run -s out out/_scoped/s3-bucket-kms-encryption.yml --dryrun
 ```
 
-**`--dryrun` 은 항상 붙는다.** 실조치를 켜려면 `run_custodian(dry_run=False)` 로
-바꾸면 되지만, 조치 전 스냅샷과 롤백이 붙기 전에는 켜지 않는다.
-
-한 정책이 실패해도 **나머지 정책은 계속 진행한다.** 실패한 묶음만 `failed` 가 된다.
-
 **`resources.json` 은 조치 결과가 아니다.** 그 정책의 필터를 통과한 리소스 목록,
 즉 "위반으로 판정된 것"이다. dryrun 이라 액션은 실행되지 않았다.
+
+한 정책이 실패해도 **나머지 정책은 계속 진행한다.** 실패한 묶음만 `failed` 가 된다.
 
 ### ⑥ 대조 — 의도한 대상이 걸렸는가
 
@@ -374,11 +428,6 @@ custodian run -s out out/_scoped/s3-bucket-kms-encryption.yml --dryrun
 | 출력 | finding 별 status |
 
 **Prowler 스캔은 과거 시점의 사진이고, Custodian 실행은 지금 이 순간의 상태다.**
-그래서 조치 직전에 "지금도 그런가"를 다시 확인한다.
-
-범위 제한을 먼저 하므로 이 단계는 **"의도한 대상이 제대로 걸렸는지" 검증**이다.
-
-판정 순서 — 앞의 조건이 걸리면 뒤는 보지 않는다.
 
 ```
 1. 계정이 다름              → account_mismatch
@@ -390,12 +439,10 @@ custodian run -s out out/_scoped/s3-bucket-kms-encryption.yml --dryrun
 
 **1번이 맨 앞인 이유** — 조회 대상 계정은 findings 가 아니라 **실행자의 자격증명**이
 정한다. 계정이 다르면 ARN 이 안 맞는 게 당연한데 그걸 `already_fixed` 로 남기면
-"이미 조치됨"으로 오독된다. Custodian 이 `out/<정책>/metadata.json` 에 남기는
+"이미 조치됨"으로 오독된다. Custodian 이 `metadata.json` 에 남기는
 `config.account_id` 를 finding 의 `account_uid` 와 비교한다.
 
 ①의 범위 필터와 역할이 다르다. **①은 사전 차단, ⑥은 자격증명이 잘못됐을 때의 안전망**이다.
-
-리소스에서 ARN 을 찾을 때는 `BucketArn` → `Arn` → `arn` 순으로 시도한다.
 
 ### ⑦ 승인 — 사람에게 묻는다
 
@@ -404,10 +451,13 @@ custodian run -s out out/_scoped/s3-bucket-kms-encryption.yml --dryrun
 | 입력 | `mode: approve` 이면서 `still_open` 인 건 |
 | 출력 | `approved` / `declined` / `approval_pending` |
 
-**dryrun 을 먼저 돌린 뒤에 묻는다.** 무엇을 고칠지 보여줘야 판단할 수 있기 때문이다.
-`still_open` 인 건만 묻는다 — 이미 해소됐거나 대조가 안 된 건은 물을 이유가 없다.
+`still_open` 인 건만 묻는다. 이미 해소됐거나 대조가 안 된 건은 물을 이유가 없다.
 
-출력 형식과 응답 키는 [승인 프롬프트](#승인-프롬프트) 참고.
+**자동 실행이 켜져 있으면 묻지 않는다.** `optin.is_opted_in()` 이 판단하는데,
+지금은 DB 연결 전이라 **항상 `False`** 다. 즉 모든 조치가 승인을 거친다.
+
+비대화형이면 `approval_pending` 으로 남긴다. 자동 실행 중에 입력을 기다리며
+멈추면 안 되기 때문이다. **웹 연동은 이 경로를 쓴다.**
 
 ### ⑧ 로그 — 결과 기록
 
@@ -416,19 +466,53 @@ custodian run -s out out/_scoped/s3-bucket-kms-encryption.yml --dryrun
 | 입력 | 모든 finding (제외된 건 포함) |
 | 출력 | `logs/actions-<타임스탬프>.json` + 콘솔 요약 |
 
-①~⑦ 에서 걸러진 건까지 **전부** 기록한다. "왜 조치하지 않았는지"가 남아야
-다음 파트가 집계할 수 있다. **레코드 수는 항상 FAIL finding 수와 같다.**
+①~⑦ 에서 걸러진 건까지 **전부** 기록한다. **레코드 수는 항상 FAIL finding 수와 같다.**
 
-status 값은 셋으로 갈린다.
+레코드는 세 곳에서 모인다.
+
+```
+finding          check_id · resource_uid · account_uid · severity · status · reason
+mapping.yml      mode · risk_note · auto_eligible · auto_reason
+policies/*.yml   disruption · blast_radius · propagation_delay · reversible · cost_impact
+```
+
+### Phase 2 — 승인된 건 조치
+
+```
+승인 목록 → 만료 검사 → 범위 필터 → 매핑 재조회 → dryrun 재실행 → 대조 → 조치
+```
+
+**승인 시점의 판정을 그대로 믿지 않는다.** 승인은 과거의 판단이고 조치는 지금
+나간다. 그 사이에 누가 이미 고쳤을 수 있다.
+
+```
+[조치 1/3] 승인 건 3건 접수
+      만료 1건 제외
+[조치 2/3] 매핑 재조회
+[조치 3/3] 조치 전 재검증: 정책 2개
+  - s3-bucket-kms-encryption (승인 2건)
+      dryrun 대상 리소스 0건 / ARN 확보 0건
+      조치할 건이 없습니다 (전부 해소되었거나 대조 불가)
+```
+
+- **승인 만료** — 기본 24시간. `approved_at` 이 없으면 만료로 보지 않는다
+- **범위 재확인** — 승인 이후 대상 계정이 바뀌었을 수 있다
+- **매핑 재조회** — 승인 이후 정책이나 위험도 판정이 바뀌었을 수 있다
+
+`apply=False` 가 기본이라 **조치 직전까지만 가고 `ready` 로 남는다.**
+
+## status 값
 
 | | status |
 |---|---|
-| **조치 대상** | `still_open` (위반 확정) · `approved` (승인됨, dryrun 이라 변경 없음) |
-| **조치 안 함** | `out_of_scope` · `unmapped` · `not_supported` · `manual_required` · `declined` · `approval_pending` |
-| **판정 불가** | `already_fixed` · `arn_not_found` · `account_mismatch` · `failed` |
+| **조치 대상** | `still_open` · `approved` · `auto_approved` · `ready` |
+| **조치 완료** | `remediated` |
+| **조치 안 함** | `out_of_scope` · `unmapped` · `not_supported` · `manual_required` · `declined` · `approval_pending` · `expired` · `no_longer_open` |
+| **판정 불가 · 실패** | `already_fixed` · `arn_not_found` · `account_mismatch` · `failed` · `remediation_failed` |
+
+**`auto_approved` 는 지금 나오지 않는다.** `optin.is_opted_in()` 이 항상 `False` 라
+자동 실행이 켜지지 않기 때문이다. DB 를 연결하면 그때부터 나온다.
 
 **`already_fixed` 는 "안전하다"가 아니다.** 원인이 셋(이미 해소 / 두 도구의 판정
-기준 차이 / 리소스 삭제)인데 코드가 구분하지 못한다. 건수가 많으면 매핑이나 정책
-필터를 다시 봐야 한다. `arn_not_found` 도 마찬가지다.
-
-레코드 필드는 `reporter.py` 의 `LOG_FIELDS` 와 `REMEDIATION_LOG_FIELDS` 에 있다.
+기준 차이 / 리소스 삭제)인데 코드가 구분하지 못한다. 조회 권한이 없어 안 보이는
+경우도 여기로 떨어진다. 건수가 많으면 매핑이나 정책 필터를 다시 봐야 한다.
