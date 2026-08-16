@@ -13,7 +13,7 @@ import os
 import yaml
 
 from .config import SCOPED_DIR
-from .policy_meta import find_policy
+from .policy_meta import find_policy, is_account_scoped
 
 
 def extract_resource_name(arn):
@@ -44,15 +44,15 @@ def build_scoped_policy(policy_name, findings):
 
     head = findings[0] if findings else {}
     scope_key = (head.get("mapping") or {}).get("scope_key")
-    blast_radius = ((head.get("policy_meta") or {}).get("approve") or {}).get("blast_radius")
+    approve = (head.get("policy_meta") or {}).get("approve") or {}
 
     names = sorted({
         n for n in (extract_resource_name(f.get("resource_uid")) for f in findings) if n
     })
 
-    # 계정 단위 체크는 계정 설정 하나를 보는 것이라 리소스 필터를 얹으면 판정이 어긋난다
-    if blast_radius == "account":
-        note = "계정 단위 체크 - 범위 제한 없이 실행"
+    # 계정·리전 단위 체크는 설정 하나를 보는 것이라 리소스 필터를 얹으면 판정이 어긋난다
+    if is_account_scoped(approve):
+        note = f"{approve.get('blast_radius')} 단위 체크 - 범위 제한 없이 실행"
     elif not scope_key:
         note = "경고: scope_key 가 없어 계정 전체를 대상으로 실행"
     elif not names:

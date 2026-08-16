@@ -18,6 +18,7 @@ __pycache__/
 # 개인 작업 문서 (공유 대상 아님)
 PLAN.md
 HYBRID-PLAN.md
+DECISIONS.md
 DATA-REQUIREMENTS.md
 MENTORING.md
 architecture.svg
@@ -27,3 +28,4 @@ remediation_inout.drawio
 
 # 조치 대상 범위 - 실제 계정 ID 가 들어간다
 response/scope.yml
+progress.csv

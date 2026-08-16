@@ -15,6 +15,7 @@ import os
 from datetime import datetime
 
 from .config import LOG_DIR
+from .runbook import as_record, find as find_runbook
 
 # finding 에서 그대로 옮기는 항목
 LOG_FIELDS = (
@@ -72,6 +73,10 @@ def build_log_records(findings):
         approve = meta.get("approve") or {}
         for field in APPROVE_LOG_FIELDS:
             record[field] = approve.get(field)
+
+        # 조치 안내는 reason 에 문자열로도 담기지만, 웹 화면이 CLI 와 콘솔 절차를
+        # 나눠 그리려면 구조가 필요하다
+        record["runbook"] = as_record(find_runbook(entry.get("runbook")))
 
         record["executed_at"] = executed_at
         records.append(record)

@@ -1,0 +1,2150 @@
+accessanalyzer_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable **IAM Access Analyzer** across all accounts and active Regions (*or organization-wide*). Operate on least privilege:
+    continuously review findings, remove unintended access, and trim unused permissions. Use archive rules sparingly, integrate
+    reviews into change/CI/CD workflows, and enforce separation of duties on policy changes.
+
+  command_template: >-
+    aws accessanalyzer create-analyzer
+
+    --analyzer-name example_resource
+
+    --type ACCOUNT
+
+  console_steps:
+  - In the AWS Console, open IAM
+  - Go to Access analyzer > Analyzer settings
+  - Confirm the desired Region
+  - Click Create analyzer
+  - Select Resource analysis - External access
+  - Set Name to "example_resource" and Zone of trust to "Current account"
+  - Click Create
+
+  docs_url: https://hub.prowler.com/check/accessanalyzer_enabled
+
+
+account_maintain_different_contact_details_to_security_billing_and_operations:
+  method: console
+
+  description: >-
+    Maintain distinct, monitored **Security**, **Billing**, and **Operations** alternate contacts that differ from the root
+    contact.
+
+    - Use team aliases and 24x7 phones
+
+    - Review and test contact paths regularly
+
+    - Centralize at org level for consistency
+
+    Applies **operational resilience** and **separation of duties**.
+
+  command_template: null
+
+  console_steps:
+  - Sign in to the AWS Management Console with a user that can edit account contacts (root, or IAM with account:PutAlternateContact)
+  - In the upper right, click your account name > Account
+  - Scroll to "Alternate contacts" and click Edit
+  - 'Add all three contacts with unique details: - Billing contact (distinct name, email, phone) - Operations contact (distinct
+    name, email, phone) - Security contact (distinct name, email, phone)'
+  - Ensure each contact’s email/phone differs from each other and from the primary (root) contact, then click Update
+
+  docs_url: https://hub.prowler.com/check/account_maintain_different_contact_details_to_security_billing_and_operations
+
+
+backup_vaults_exist:
+  method: cli_or_console
+
+  description: >-
+    Create and maintain a **backup vault** in each required region. Enforce **least privilege** access, encrypt with **KMS
+    CMKs**, and enable **Vault Lock** to prevent tampering. Use lifecycle rules and cross-region/cross-account copies, and
+    regularly test restores for **defense in depth**.
+
+  command_template: >-
+    aws backup create-backup-vault
+
+    --backup-vault-name <example_resource_name>
+
+  console_steps:
+  - Sign in to the AWS Management Console and open the AWS Backup console
+  - In the left navigation pane, select Backup vaults
+  - Click Create backup vault
+  - Enter a name (e.g., <example_resource_name>)
+  - Click Create backup vault
+
+  docs_url: https://hub.prowler.com/check/backup_vaults_exist
+
+
+bedrock_guardrails_configured:
+  method: cli_or_console
+
+  description: >-
+    Create at least one **Bedrock guardrail** in each region where Bedrock is used, then separately ensure those guardrails
+    are attached to relevant agents and invocation paths.
+
+    - Configure **content filters** for harmful categories (hate, violence, sexual, misconduct)
+
+    - Add **sensitive information filters** and **denied topic policies**
+
+    - Apply guardrails at the API call level using `guardrailIdentifier` where supported
+
+  command_template: >-
+    aws bedrock create-guardrail
+
+    --name example_resource
+
+    --blocked-input-messaging 'Blocked'
+
+    --blocked-outputs-messaging 'Blocked'
+
+    --content-policy-config 'filtersConfig=[{type=HATE,inputStrength=HIGH,outputStrength=HIGH}]'
+
+  console_steps:
+  - Open the AWS Console and go to Amazon Bedrock
+  - Select **Guardrails** from the navigation pane
+  - Click **Create guardrail**
+  - Configure content filters for harmful categories
+  - Set input and output messaging for blocked content
+  - Click **Create guardrail**
+
+  docs_url: https://hub.prowler.com/check/bedrock_guardrails_configured
+
+
+bedrock_model_invocation_logging_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable **model invocation logging** and route events to **CloudWatch Logs** and/or **S3**.
+
+    Enforce **least privilege** on log access, use encryption, and set retention/lifecycle policies. Monitor for anomalies
+    and alerts to support **defense in depth** and **separation of duties**.
+
+  command_template: >-
+    aws bedrock put-model-invocation-logging-configuration
+
+    --logging-config '{"s3Config":{"bucketName":"<example_resource_name>"},"textDataDeliveryEnabled":true}'
+
+  console_steps:
+  - Open the Amazon Bedrock console in the target Region
+  - Go to Settings > Model invocation logging
+  - Toggle Logging to On
+  - Select Amazon S3 as the destination and choose <example_resource_name> bucket
+  - Under Data types, select Text
+  - Click Save
+
+  docs_url: https://hub.prowler.com/check/bedrock_model_invocation_logging_enabled
+
+
+bedrock_prompt_management_exists:
+  method: cli_or_console
+
+  description: >-
+    Adopt **Bedrock Prompt Management** to centralize prompt definitions, enforce versioning, and maintain governance over
+    model interactions.
+
+    Use managed prompts with **guardrails** and apply **least privilege** access controls to restrict who can create or modify
+    prompts.
+
+  command_template: >-
+    aws bedrock-agent create-prompt
+
+    --name example_prompt
+
+    --default-variant default
+
+    --variants '[{"name":"default","templateType":"TEXT","templateConfiguration":{"text":{"text":"Your prompt template here."}}}]'
+
+  console_steps:
+  - Open the Amazon Bedrock console
+  - Navigate to Prompt Management
+  - Click Create prompt
+  - Provide a name and configure the prompt template (a prompt can contain at most one variant; additional variants are created
+    via CreatePromptVersion)
+  - Save the prompt
+
+  docs_url: https://hub.prowler.com/check/bedrock_prompt_management_exists
+
+
+cloudtrail_bucket_requires_mfa_delete:
+  method: cli_or_console
+
+  description: >-
+    Enable `MFA Delete` on the CloudTrail log bucket with versioning enabled. Enforce **least privilege** so only tightly
+    controlled identities can delete or alter logs, and require MFA for such actions. Apply **defense in depth** using a dedicated
+    logging account and log file integrity validation.
+
+  command_template: >-
+    aws s3api put-bucket-versioning
+
+    --bucket <CLOUDTRAIL_BUCKET_NAME>
+
+    --versioning-configuration Status=Enabled,MFADelete=Enabled
+
+    --mfa "<MFA_SERIAL> <MFA_CODE>"
+
+  console_steps:
+  - Sign in to the AWS Management Console as the root user with MFA enabled
+  - Open AWS CloudShell (from the top navigation bar)
+  - 'Run: ```bash aws s3api put-bucket-versioning --bucket <CLOUDTRAIL_BUCKET_NAME> --versioning-configuration Status=Enabled,MFADelete=Enabled
+    --mfa "<MFA_SERIAL> <MFA_CODE>" ```'
+
+  docs_url: https://hub.prowler.com/check/cloudtrail_bucket_requires_mfa_delete
+
+
+cloudtrail_cloudwatch_logging_enabled:
+  method: cli_or_console
+
+  description: >-
+    Integrate every trail with **CloudWatch Logs** and maintain continuous, near-real-time delivery. Enforce **least privilege**
+    on the delivery role, prefer **multi-Region** coverage, and implement **metric filters and alerts** for sensitive actions.
+    Centralize retention to support **defense in depth**.
+
+  command_template: >-
+    aws cloudtrail update-trail
+
+    --name <trail_name>
+
+    --cloud-watch-logs-log-group-arn <cloudwatch_log_group_arn>
+
+    --cloud-watch-logs-role-arn <cloudwatch_logs_role_arn>
+
+  console_steps:
+  - In AWS Console, go to CloudTrail > Trails and select the trail
+  - In the CloudWatch Logs section, click Edit
+  - Set CloudWatch Logs to Enabled
+  - Choose an existing Log group (or create new) and select an IAM role with permissions for CreateLogStream/PutLogEvents
+  - Click Save changes
+  - After a few minutes, verify events appear in the chosen CloudWatch Logs log group
+
+  docs_url: https://hub.prowler.com/check/cloudtrail_cloudwatch_logging_enabled
+
+
+cloudtrail_insights_exist:
+  method: cli_or_console
+
+  description: >-
+    Enable **CloudTrail Insights** on all logging trails (ideally all-Region or organization trails). Activate both `ApiCallRateInsight`
+    and `ApiErrorRateInsight`. Integrate alerts with monitoring and review anomalies regularly. Apply **defense in depth**
+    and least privilege to reduce potential blast radius.
+
+  command_template: >-
+    aws cloudtrail put-insight-selectors
+
+    --trail-name <TRAIL_NAME>
+
+    --insight-selectors '[{"InsightType":"ApiCallRateInsight"}]'
+
+  console_steps:
+  - In the AWS Console, go to CloudTrail > Trails
+  - Select the trail that is logging
+  - Click Edit on the CloudTrail Insights section
+  - Enable Insights and select API call rate (or Error rate)
+  - Save changes
+
+  docs_url: https://hub.prowler.com/check/cloudtrail_insights_exist
+
+
+cloudtrail_kms_encryption_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable **SSE-KMS** on every trail using a **customer-managed KMS key**. Apply **least privilege** so only authorized roles
+    can `Decrypt`, and enforce **separation of duties** between key admins and log readers. Rotate keys and monitor key usage
+    to provide **defense in depth** for CloudTrail data.
+
+  command_template: >-
+    aws cloudtrail update-trail
+
+    --name <trail_name>
+
+    --kms-key-id <kms_key_arn_or_id>
+
+  console_steps:
+  - In the AWS Console, go to CloudTrail > Trails
+  - Select the trail <trail_name>, click Edit
+  - Under Log file encryption, choose Use a KMS key and select <cloudtrail_kms_key>
+  - Click Save changes
+
+  docs_url: https://hub.prowler.com/check/cloudtrail_kms_encryption_enabled
+
+
+cloudtrail_logs_s3_bucket_access_logging_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable **S3 server access logging** on the CloudTrail logs bucket and write logs to a separate, tightly controlled bucket.
+    Apply **least privilege**, enable **versioning**, and consider **Object Lock** to deter tampering. Centralize monitoring
+    to support defense-in-depth and rapid investigation.
+
+  command_template: >-
+    aws s3api put-bucket-logging
+
+    --bucket <CLOUDTRAIL_BUCKET_NAME>
+
+    --bucket-logging-status "{\"LoggingEnabled\":{\"TargetBucket\":\"<TARGET_BUCKET_NAME>\"}}"
+
+  console_steps:
+  - In the AWS Console, go to S3 and open the bucket used by your CloudTrail trail
+  - Select the Properties tab
+  - In Server access logging, click Edit
+  - Enable logging and choose a different destination S3 bucket for the logs
+  - Click Save changes
+
+  docs_url: https://hub.prowler.com/check/cloudtrail_logs_s3_bucket_access_logging_enabled
+
+
+cloudtrail_multi_region_enabled:
+  method: console
+
+  description: >-
+    Use a **multi-region CloudTrail trail** or per-region trails so `logging` is active in every region, including unused
+    ones.
+
+    Centralize logs, enforce **least privilege** to log stores, and add **defense-in-depth** with encryption, integrity validation,
+    and retention. Continuously monitor trail health to catch gaps.
+
+  command_template: null
+
+  console_steps:
+  - In the AWS Console, go to CloudTrail > Trails
+  - 'If no trail exists: Click Create trail, enter a name, choose an S3 bucket, set Apply trail to all regions = Yes, then
+    Create (logging starts)'
+  - 'If a trail exists: Select it, click Edit, set Apply trail to all regions = Yes, Save'
+  - If Status shows Not logging, click Start logging
+
+  docs_url: https://hub.prowler.com/check/cloudtrail_multi_region_enabled
+
+
+cloudtrail_multi_region_enabled_logging_management_events:
+  method: console
+
+  description: >-
+    Enable a **multi-region CloudTrail** that logs **management events** for `read` and `write` in all regions.
+
+    Centralize logs in a separate, locked-down account; apply **least privilege**, encryption, retention, and integrity validation;
+    and protect trails and storage with tamper-evident, deny-delete controls for **defense-in-depth**.
+
+  command_template: null
+
+  console_steps:
+  - In the AWS Console, go to CloudTrail > Trails and select your trail
+  - Click Edit
+  - Set Apply trail to all regions to Yes
+  - Under Management events, set Read/write events to All
+  - Click Save changes
+  - If Logging is Off, click Start logging
+
+  docs_url: https://hub.prowler.com/check/cloudtrail_multi_region_enabled_logging_management_events
+
+
+cloudtrail_s3_dataevents_read_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable CloudTrail **data events** for S3 objects with `ReadOnly` (or `All`) across all current and future buckets. Use
+    a multi-Region trail, centralize logs in an encrypted bucket with lifecycle retention, and integrate monitoring/alerts
+    to support **defense in depth** and accountable access.
+
+  command_template: >-
+    aws cloudtrail put-event-selectors
+
+    --trail-name <example_resource_name>
+
+    --event-selectors '[{"ReadWriteType":"ReadOnly","DataResources":[{"Type":"AWS::S3::Object","Values":["arn:aws:s3"]}]}]'
+
+  console_steps:
+  - In the AWS Console, open CloudTrail and select Trails
+  - Open your trail and go to the Data events section
+  - Add data event for S3 and choose All current and future S3 buckets
+  - Select only Read events (or All if Read-only is unavailable)
+  - Save changes
+
+  docs_url: https://hub.prowler.com/check/cloudtrail_s3_dataevents_read_enabled
+
+
+cloudtrail_s3_dataevents_write_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable **CloudTrail S3 data events** for object-level **write** (and *optionally* read) across all buckets on a multi-Region
+    trail. Apply **least privilege** to log storage, set **lifecycle** retention, and integrate alerts. Use **advanced selectors**
+    to target sensitive buckets/operations for cost control and **defense in depth**.
+
+  command_template: >-
+    aws cloudtrail put-event-selectors
+
+    --trail-name <example_resource_name>
+
+    --event-selectors '[{"ReadWriteType":"WriteOnly","DataResources":[{"Type":"AWS::S3::Object","Values":["arn:aws:s3"]}]}]'
+
+  console_steps:
+  - In the AWS Console, open CloudTrail and go to Trails
+  - Select <your trail> and click Edit under Data events
+  - For Data event source, choose S3
+  - Select All current and future S3 buckets
+  - Check Write events (or All events)
+  - Click Save changes
+
+  docs_url: https://hub.prowler.com/check/cloudtrail_s3_dataevents_write_enabled
+
+
+cloudwatch_changes_to_network_acls_alarm_configured:
+  method: console
+
+  description: >-
+    Implement a CloudWatch Logs metric filter and alarm for NACL change events from CloudTrail and route alerts to responders.
+    Enforce **least privilege** on NACL management, require **change control**, and use **defense in depth** with configuration
+    monitoring and flow logs to validate and monitor network posture.
+
+  command_template: null
+
+  console_steps:
+  - In the AWS Console, go to CloudWatch > Log groups and open the CloudTrail log group
+  - Metric filters tab > Create metric filter
+  - 'Set Filter pattern to: { ($.eventName = CreateNetworkAcl) || ($.eventName = CreateNetworkAclEntry) || ($.eventName =
+    DeleteNetworkAcl) || ($.eventName = DeleteNetworkAclEntry) || ($.eventName = ReplaceNetworkAclEntry) || ($.eventName =
+    ReplaceNetworkAclAssociation) }'
+  - 'Next > Filter name: nacl_changes; Metric namespace: CISBenchmark; Metric name: nacl_changes; Metric value: 1 > Create
+    metric filter'
+  - Select the new metric filter > Create alarm
+  - 'Set Statistic: Sum, Period: 5 minutes, Threshold type: Static, Condition: Greater/Equal, Threshold: 1'
+  - 'Next through actions (optional) > Name: nacl_changes > Create alarm'
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_changes_to_network_acls_alarm_configured
+
+
+cloudwatch_changes_to_network_gateways_alarm_configured:
+  method: console
+
+  description: >-
+    Send CloudTrail to CloudWatch Logs and create a metric filter for the listed gateway events with an alarm that notifies
+    responders. Enforce **least privilege** for gateway modifications, require change approvals, and route alerts to monitored
+    channels as part of **defense in depth**.
+
+  command_template: null
+
+  console_steps:
+  - In the AWS Console, go to CloudWatch > Logs > Log groups and open the CloudTrail log group
+  - 'Create metric filter: - Filter pattern: { ($.eventName = CreateCustomerGateway) || ($.eventName = DeleteCustomerGateway)
+    || ($.eventName = AttachInternetGateway) || ($.eventName = CreateInternetGateway) || ($.eventName = DeleteInternetGateway)
+    || ($.eventName = DetachInternetGateway) } - Metric name: <example_resource_name> - Metric namespace: <example_resource_name>
+    - Metric value: 1'
+  - 'From the filter, choose Create alarm: - Statistic: Sum, Period: 5 minutes, Threshold: >= 1, Evaluation periods: 1 - Create
+    the alarm (actions optional)'
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_changes_to_network_gateways_alarm_configured
+
+
+cloudwatch_changes_to_network_route_tables_alarm_configured:
+  method: console
+
+  description: >-
+    Implement a **CloudWatch Logs metric filter and alarm** on CloudTrail for these route table events and notify responders.
+    Enforce **least privilege** for route modifications, require **change control**, and apply **defense in depth** with VPC
+    Flow Logs and guardrails to prevent and quickly contain unsafe routing changes.
+
+  command_template: null
+
+  console_steps:
+  - In the AWS console, open CloudWatch > Log groups and select your CloudTrail log group
+  - Go to Metric filters > Create metric filter
+  - 'Set Filter pattern to: {($.eventSource = ec2.amazonaws.com) && (($.eventName = CreateRoute) || ($.eventName = CreateRouteTable)
+    || ($.eventName = ReplaceRoute) || ($.eventName = ReplaceRouteTableAssociation) || ($.eventName = DeleteRouteTable) ||
+    ($.eventName = DeleteRoute) || ($.eventName = DisassociateRouteTable))}'
+  - Name the metric and set Metric value to 1; choose any namespace/name
+  - Create the filter
+  - From the filter, click Create alarm
+  - 'Set Statistic: Sum, Period: 5 minutes, Threshold type: Static, Threshold: 1, Whenever: Greater/Equal'
+  - Create the alarm (notifications optional)
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_changes_to_network_route_tables_alarm_configured
+
+
+cloudwatch_changes_to_vpcs_alarm_configured:
+  method: console
+
+  description: >-
+    Create a CloudWatch Logs metric filter and alarm on CloudTrail for critical **VPC change events**, and notify responders.
+    Apply **least privilege** to network changes, require change approvals, and use **defense in depth** (segmentation, route
+    controls) to prevent and contain unauthorized modifications.
+
+  command_template: null
+
+  console_steps:
+  - In the AWS Console, go to CloudWatch > Log groups and open the CloudTrail log group
+  - Choose Create metric filter
+  - 'For Filter pattern, paste: { ($.eventName = CreateVpc) || ($.eventName = DeleteVpc) || ($.eventName = ModifyVpcAttribute)
+    || ($.eventName = AcceptVpcPeeringConnection) || ($.eventName = CreateVpcPeeringConnection) || ($.eventName = DeleteVpcPeeringConnection)
+    || ($.eventName = RejectVpcPeeringConnection) || ($.eventName = AttachClassicLinkVpc) || ($.eventName = DetachClassicLinkVpc)
+    || ($.eventName = DisableVpcClassicLink) || ($.eventName = EnableVpcClassicLink) }'
+  - Name the filter and set Metric namespace to CISBenchmark, Metric name to vpc_changes_metric, Metric value to 1; create
+    the filter
+  - Select the new filter and choose Create alarm
+  - Set Statistic to Sum, Period 5 minutes, Threshold type Static, Whenever Greater/Equal 1, Evaluation periods 1
+  - Create the alarm (actions/notifications are optional and not required for pass)
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_changes_to_vpcs_alarm_configured
+
+
+cloudwatch_log_metric_filter_and_alarm_for_aws_config_configuration_changes_enabled:
+  method: console
+
+  description: >-
+    Create a **CloudWatch Logs metric filter and alarm** for `config.amazonaws.com` events (`StopConfigurationRecorder`, `DeleteDeliveryChannel`,
+    `PutDeliveryChannel`, `PutConfigurationRecorder`). Route CloudTrail to Logs, notify responders, and enforce **least privilege**
+    and **separation of duties** on Config changes to prevent abuse.
+
+  command_template: null
+
+  console_steps:
+  - Open the CloudWatch console and go to Logs > Log groups
+  - Select the CloudTrail log group that receives trail events
+  - 'Create a metric filter with pattern: {($.eventSource = config.amazonaws.com) && (($.eventName=StopConfigurationRecorder)||($.eventName=DeleteDeliveryChannel)||($.eventName=PutDeliveryChannel)||($.eventName=PutConfigurationRecorder))}
+    - Metric name: aws_config_changes_metric - Namespace: CISBenchmark - Value: 1'
+  - From the created metric filter, choose Create alarm
+  - 'Set: Sum, Period 5 minutes, Threshold >= 1, Evaluation periods 1'
+  - Create the alarm (actions/notifications optional)
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_log_metric_filter_and_alarm_for_aws_config_configuration_changes_enabled
+
+
+cloudwatch_log_metric_filter_and_alarm_for_cloudtrail_configuration_changes_enabled:
+  method: console
+
+  description: >-
+    Implement a **metric filter** for trail configuration events and a linked **alarm** that notifies response channels.
+
+    Apply **least privilege** and **separation of duties** for trail changes, add **defense in depth** with centralized logging
+    and validation, and regularly test that alerts fire.
+
+  command_template: null
+
+  console_steps:
+  - In the AWS Console, go to CloudWatch > Log groups and open the log group used by CloudTrail
+  - 'Create metric filter: Actions > Create metric filter - Filter pattern: {($.eventName = CreateTrail) || ($.eventName =
+    UpdateTrail) || ($.eventName = DeleteTrail) || ($.eventName = StartLogging) || ($.eventName = StopLogging)} - Metric name:
+    <example_resource_name>, Namespace: <example_resource_name>, Value: 1 - Create metric filter'
+  - 'From the Metric filters tab, select the new filter and choose Create alarm - Threshold: Greater/Equal 1, Period: 5 minutes,
+    Evaluation periods: 1 - Create alarm'
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_log_metric_filter_and_alarm_for_cloudtrail_configuration_changes_enabled
+
+
+cloudwatch_log_metric_filter_authentication_failures:
+  method: console
+
+  description: >-
+    Implement a log metric filter for `ConsoleLogin` failures and attach a **CloudWatch alarm** with actionable notifications.
+    Tune thresholds to reduce noise and route alerts to incident response.
+
+    Apply **least privilege** and enforce **MFA** to limit impact, and correlate alerts with source IP and user context.
+
+  command_template: null
+
+  console_steps:
+  - In the AWS Console, open CloudWatch
+  - Go to Logs > Log groups and select the CloudTrail log group receiving events
+  - 'Open the Metric filters tab > Create metric filter - Filter pattern: { ($.eventName = ConsoleLogin) && ($.errorMessage
+    = "Failed authentication") } - Assign any metric name and namespace, value 1, then create'
+  - 'On the created metric filter, select it and choose Create alarm - Statistic: Sum, Period: 5 minutes, Threshold type:
+    Static, Threshold: >= 1 - Create the alarm'
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_log_metric_filter_authentication_failures
+
+
+cloudwatch_log_metric_filter_aws_organizations_changes:
+  method: console
+
+  description: >-
+    Send CloudTrail events to **CloudWatch Logs**, add a metric filter for `organizations.amazonaws.com` change events, and
+    attach an alarm that notifies responders. Enforce **least privilege** and **separation of duties** for org admins, require
+    MFA and approvals, and regularly test alerts to ensure timely detection and response.
+
+  command_template: null
+
+  console_steps:
+  - Open CloudWatch > Logs > Log groups and select the CloudTrail log group for your trail
+  - 'Choose Create metric filter and set Filter pattern to: { ($.eventSource = organizations.amazonaws.com) && (($.eventName
+    = "AcceptHandshake") || ($.eventName = "AttachPolicy") || ($.eventName = "CancelHandshake") || ($.eventName = "CreateAccount")
+    || ($.eventName = "CreateOrganization") || ($.eventName = "CreateOrganizationalUnit") || ($.eventName = "CreatePolicy")
+    || ($.eventName = "DeclineHandshake") || ($.eventName = "DeleteOrganization") || ($.eventName = "DeleteOrganizationalUnit")
+    || ($.eventName = "DeletePolicy") || ($.eventName = "EnableAllFeatures") || ($.eventName = "EnablePolicyType") || ($.eventName
+    = "InviteAccountToOrganization") || ($.eventName = "LeaveOrganization") || ($.eventName = "DetachPolicy") || ($.eventName
+    = "DisablePolicyType") || ($.eventName = "MoveAccount") || ($.eventName = "RemoveAccountFromOrganization") || ($.eventName
+    = "UpdateOrganizationalUnit") || ($.eventName = "UpdatePolicy")) }'
+  - 'Assign a metric: Namespace = CISBenchmark, Metric name = OrganizationsChanges, Metric value = 1, then Create metric filter'
+  - On the metric filter, select Create alarm; set Statistic = Sum, Period = 5 minutes, Threshold type = Static, Threshold
+    = 1, Evaluation periods = 1; Create alarm
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_log_metric_filter_aws_organizations_changes
+
+
+cloudwatch_log_metric_filter_disable_or_scheduled_deletion_of_kms_cmk:
+  method: console
+
+  description: >-
+    Establish **CloudWatch metric filters and alarms** for `DisableKey` and `ScheduleKeyDeletion` CloudTrail events to enable
+    rapid response.
+
+    - Apply **least privilege** to KMS administration
+
+    - Enforce **change control** and separation of duties
+
+    - Use deletion waiting periods and monitor all regions
+
+  command_template: null
+
+  console_steps:
+  - Open the AWS Console and go to CloudWatch > Log groups
+  - Select the CloudTrail log group that receives your trail events
+  - Choose Create metric filter
+  - 'In Filter pattern, paste: {($.eventSource = kms.amazonaws.com) && (($.eventName=DisableKey)||($.eventName=ScheduleKeyDeletion))
+    }'
+  - Name the metric (e.g., disable_or_delete_cmk_changes_metric), set Namespace to CISBenchmark, Value to 1, then Create
+  - From the Metric filters tab, select the new filter and click Create alarm
+  - 'Set Statistic: Sum, Period: 5 minutes, Threshold type: Static, Threshold: 1, Comparison: Greater/Equal'
+  - Create the alarm (notification actions optional and not required for pass)
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_log_metric_filter_disable_or_scheduled_deletion_of_kms_cmk
+
+
+cloudwatch_log_metric_filter_for_s3_bucket_policy_changes:
+  method: console
+
+  description: >-
+    Establish and maintain **metric filters** and **alarms** for S3 bucket policy, ACL, CORS, lifecycle, and replication changes.
+    Route alerts to monitored channels and integrate with SIEM. Enforce **least privilege**, require change reviews, and use
+    **defense in depth** to prevent and quickly detect unsafe bucket policy changes.
+
+  command_template: null
+
+  console_steps:
+  - Open the CloudWatch console and go to Logs > Log groups.
+  - Select the CloudTrail log group that receives your trail events.
+  - 'Create metric filter: - Choose Create metric filter. - Filter pattern: ``` {($.eventSource=s3.amazonaws.com) && (($.eventName=PutBucketAcl)
+    || ($.eventName=PutBucketPolicy) || ($.eventName=PutBucketCors) || ($.eventName=PutBucketLifecycle) || ($.eventName=PutBucketReplication)
+    || ($.eventName=DeleteBucketPolicy) || ($.eventName=DeleteBucketCors) || ($.eventName=DeleteBucketLifecycle) || ($.eventName=DeleteBucketReplication))}
+    ``` - Set Metric name and Namespace (any values) and Metric value = 1. Save.'
+  - From the Metric filters tab, select the new filter and choose Create alarm.
+  - 'Set: Statistic = Sum, Period = 5 minutes, Threshold type = Static, Condition = Greater/Equal, Threshold = 1, Evaluation
+    periods = 1. Create alarm.'
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_log_metric_filter_for_s3_bucket_policy_changes
+
+
+cloudwatch_log_metric_filter_policy_changes:
+  method: console
+
+  description: >-
+    Create a metric filter for IAM policy create/update/delete and attach/detach events with an **alarm** to notify responders.
+
+    - Enforce **least privilege** and separation of duties for policy changes
+
+    - Require approvals and central logging across Regions/accounts
+
+    - Integrate alerts with incident response
+
+  command_template: null
+
+  console_steps:
+  - Open the CloudWatch console > Logs > Log groups and select the CloudTrail log group
+  - 'Create metric filter: - Filter pattern: {($.eventName=DeleteGroupPolicy)||($.eventName=DeleteRolePolicy)||($.eventName=DeleteUserPolicy)||($.eventName=PutGroupPolicy)||($.eventName=PutRolePolicy)||($.eventName=PutUserPolicy)||($.eventName=CreatePolicy)||($.eventName=DeletePolicy)||($.eventName=CreatePolicyVersion)||($.eventName=DeletePolicyVersion)||($.eventName=AttachRolePolicy)||($.eventName=DetachRolePolicy)||($.eventName=AttachUserPolicy)||($.eventName=DetachUserPolicy)||($.eventName=AttachGroupPolicy)||($.eventName=DetachGroupPolicy)}
+    - Metric name: <example_resource_name> - Namespace: CISBenchmark - Metric value: 1'
+  - On the Metric filters tab, select the new filter and choose Create alarm
+  - 'Set: Statistic=Sum, Period=5 minutes, Threshold type=Static, Greater/Equal, Threshold=1, Evaluation periods=1'
+  - Create the alarm
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_log_metric_filter_policy_changes
+
+
+cloudwatch_log_metric_filter_root_usage:
+  method: console
+
+  description: >-
+    Enable real-time alerts for **root activity** using a log metric filter and a high-priority alarm with notifications.
+
+    Reduce exposure: enforce **least privilege**, keep root for *break-glass* with MFA, disable root access keys, and route
+    alerts into incident response for **defense in depth**.
+
+  command_template: null
+
+  console_steps:
+  - In the AWS console, open CloudWatch > Logs > Log groups and select the CloudTrail log group
+  - Go to Metric filters > Create metric filter
+  - 'For Filter pattern, enter: { $.userIdentity.type = "Root" && $.userIdentity.invokedBy NOT EXISTS && $.eventType != "AwsServiceEvent"
+    }'
+  - Click Next, set any Filter name, set Metric namespace and Metric name, set Metric value to 1, then Create metric filter
+  - Select the new metric filter and click Create alarm
+  - Set Period to 5 minutes, Statistic to Sum, Threshold type Static with value 1, Evaluation periods 1, then Create alarm
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_log_metric_filter_root_usage
+
+
+cloudwatch_log_metric_filter_security_group_changes:
+  method: console
+
+  description: >-
+    Establish real-time alerts for **security group modifications** by sending CloudTrail to CloudWatch, creating metric filters
+    and alarms, and notifying responders.
+
+    - Enforce **least privilege** on SG changes
+
+    - Use change management and tagging
+
+    - Centralize logs, test alarms, and maintain runbooks
+
+    - Layer with NACLs and WAF for **defense in depth**
+
+  command_template: null
+
+  console_steps:
+  - Open the CloudWatch console > Logs > Log groups, and select the CloudTrail log group
+  - 'Create metric filter with this pattern: { ($.eventName = AuthorizeSecurityGroupIngress) || ($.eventName = AuthorizeSecurityGroupEgress)
+    || ($.eventName = RevokeSecurityGroupIngress) || ($.eventName = RevokeSecurityGroupEgress) || ($.eventName = CreateSecurityGroup)
+    || ($.eventName = DeleteSecurityGroup) }'
+  - 'Assign metric: name <example_metric_name>, namespace <example_metric_namespace>, value 1, then create the filter'
+  - 'From the metric filter, choose Create alarm and set: Statistic Sum, Period 5 minutes, Threshold type Static, Greater/Equal
+    1, Evaluation periods 1, then create the alarm'
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_log_metric_filter_security_group_changes
+
+
+cloudwatch_log_metric_filter_sign_in_without_mfa:
+  method: console
+
+  description: >-
+    Enforce **MFA** for all console-capable identities and maintain alerts for `ConsoleLogin` with `MFAUsed != \"Yes\"`.
+
+    Apply **least privilege**, route alarms to monitored channels, and tune for SSO to reduce noise. Test alarms regularly
+    and review coverage as part of **defense in depth**.
+
+  command_template: null
+
+  console_steps:
+  - In AWS Console, go to CloudWatch > Logs > Log groups and open the CloudTrail log group
+  - Go to Metric filters > Create metric filter
+  - 'Set Filter pattern to: { ($.eventName = "ConsoleLogin") && ($.additionalEventData.MFAUsed != "Yes") }'
+  - Next > set Filter name, Metric namespace, Metric name; set Metric value = 1; Create metric filter
+  - Select the new filter > Create alarm
+  - Set Statistic = Sum, Period = 5 minutes, Threshold type = Static, Threshold = 1, Whenever >= 1; Next
+  - Skip actions if not needed, Name the alarm, Create alarm
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_log_metric_filter_sign_in_without_mfa
+
+
+cloudwatch_log_metric_filter_unauthorized_api_calls:
+  method: console
+
+  description: >-
+    Enable real-time **alerting** by adding a CloudWatch Logs metric filter for unauthorized errors (`*UnauthorizedOperation`,
+    `AccessDenied*`) and associating it with an alarm that notifies responders.
+
+    - Enforce **least privilege** to reduce noise
+
+    - Integrate with IR tooling for **defense in depth**
+
+  command_template: null
+
+  console_steps:
+  - In the AWS Console, open CloudWatch > Logs > Log groups and select the CloudTrail log group
+  - Go to Metric filters > Create metric filter
+  - 'Set Filter pattern to: {($.errorCode = "*UnauthorizedOperation") || ($.errorCode = "AccessDenied*")}'
+  - Name the metric unauthorized_api_calls_metric, set Namespace to CISBenchmark, Value to 1, then create
+  - Select the new metric filter and click Create alarm
+  - 'Set Statistic: Sum, Period: 5 minutes, Threshold type: Static, Threshold: 1, Evaluation periods: 1'
+  - Create the alarm
+
+  docs_url: https://hub.prowler.com/check/cloudwatch_log_metric_filter_unauthorized_api_calls
+
+
+config_delegated_admin_and_org_aggregator_all_regions:
+  method: cli_or_console
+
+  description: >-
+    Register a **delegated administrator** for AWS Config via AWS Organizations and create at least one **Configuration Aggregator**
+    with an OrganizationAggregationSource that covers **all AWS regions**. This centralizes configuration data across the
+    organization for unified compliance and audit reporting.
+
+  command_template: >-
+    aws organizations register-delegated-administrator
+
+    --account-id <ADMIN_ACCOUNT_ID>
+
+    --service-principal config.amazonaws.com && aws configservice put-configuration-aggregator
+
+    --configuration-aggregator-name org-aggregator
+
+    --organization-aggregation-source RoleArn=<ROLE_ARN>,AllAwsRegions=true
+
+  console_steps:
+  - From the AWS Organizations management account, register the delegated administrator for config.amazonaws.com
+  - In the delegated admin account, open AWS Config
+  - Create a Configuration Aggregator and select Add my organization as the source
+  - Enable Include all AWS Regions
+  - Confirm an IAM role with AWSConfigRoleForOrganizations is attached
+  - Verify the aggregator status reaches SUCCEEDED for all member accounts
+
+  docs_url: https://hub.prowler.com/check/config_delegated_admin_and_org_aggregator_all_regions
+
+
+config_recorder_all_regions_enabled:
+  method: console
+
+  description: >-
+    Enable **AWS Config** in every Region with continuous recording and maintain healthy recorder status.
+
+  command_template: null
+
+  console_steps:
+  - In the AWS Console, go to Config
+  - Click Set up AWS Config (or Settings)
+  - Select a resource recording option (any) and choose an existing S3 bucket for delivery
+  - Keep the default AWSServiceRoleForConfig role
+  - Click Confirm/Turn on to start recording
+  - Verify on the Settings page that Status shows Recording and not Failure
+
+  docs_url: https://hub.prowler.com/check/config_recorder_all_regions_enabled
+
+
+drs_job_exist:
+  method: console
+
+  description: >-
+    Enable DRS in required Regions and protect critical workloads. Define RTO/RPO and run **regular recovery drills** to validate
+    launch settings and dependencies. Apply **least privilege**, monitor replication health, and document failover procedures
+    to ensure consistent, repeatable recovery.
+
+  command_template: null
+
+  console_steps:
+  - In the AWS Console, switch to the target Region
+  - Open Elastic Disaster Recovery (DRS)
+  - Click "Set default replication settings" (or Settings > Initialize) and choose "Configure and initialize" to enable DRS
+    in this Region
+  - Go to "Source servers" > "Add server", copy the install command, run it on one server, and wait until it shows Data replication
+    status = Healthy and Ready for recovery
+  - Select that server, choose "Initiate recovery drill" (or "Initiate recovery") and confirm to create a job
+  - Verify under "Recovery job history" that the job completes
+
+  docs_url: https://hub.prowler.com/check/drs_job_exist
+
+
+ec2_ebs_volume_encryption:
+  method: cli_or_console
+
+  description: >-
+    Encrypt all EBS volumes and enable `encryption by default` for new volumes and snapshot copies.
+
+    Apply **least privilege** to KMS keys, restrict snapshot sharing, and enforce **defense in depth** with policies and templates
+    that prevent creation of unencrypted storage.
+
+  command_template: >-
+    aws ec2 create-snapshot
+
+    --volume-id <VOLUME_ID>
+
+    --description "Snapshot for encryption" && aws ec2 copy-snapshot
+
+    --source-region <REGION>
+
+    --source-snapshot-id <SNAPSHOT_ID>
+
+    --encrypted
+
+    --description "Encrypted snapshot" && aws ec2 create-volume
+
+    --snapshot-id <ENCRYPTED_SNAPSHOT_ID>
+
+    --availability-zone <AZ>
+
+    --encrypted
+
+  console_steps:
+  - In the AWS Console, go to EC2 > Volumes and select the unencrypted volume
+  - Choose Actions > Create snapshot and wait for it to complete
+  - Open the snapshot, click Actions > Create volume, select the same Availability Zone, and check Encrypted, then create
+  - Stop the instance using the old volume
+  - Detach the old (unencrypted) volume
+  - Attach the new encrypted volume to the instance using the same device name
+  - Start the instance
+  - Verify the new volume shows Encrypted = Yes
+
+  docs_url: https://hub.prowler.com/check/ec2_ebs_volume_encryption
+
+
+ec2_ebs_volume_protected_by_backup_plan:
+  method: cli_or_console
+
+  description: >-
+    Include all critical EBS volumes in standardized **AWS Backup** plans aligned to your `RPO`/`RTO`. Use tags for automatic
+    assignment, enable cross-Region/account copies, apply **Vault Lock** for WORM retention, encrypt with KMS, enforce least-privilege
+    access, and regularly test restores to verify integrity.
+
+  command_template: >-
+    aws backup create-backup-selection
+
+    --backup-plan-id <BACKUP_PLAN_ID>
+
+    --backup-selection '{"SelectionName":"<example_resource_name>","IamRoleArn":"arn:aws:iam::<example_account_id>:role/service-role/AWSBackupDefaultServiceRole","Resources":["arn:aws:ec2:*:*:volume/*"]}'
+
+  console_steps:
+  - In the AWS Backup console, go to Backup plans and click Create backup plan
+  - Choose Start with a template (any), keep the Default vault, and create the plan
+  - Open the plan and click Assign resources
+  - Set Selection name and choose IAM role AWSBackupDefaultServiceRole
+  - Under Assign resources, choose Include specific resource types and select EBS
+  - For Resources, select all EBS volumes (or the specific volumes to protect) and click Assign resources
+
+  docs_url: https://hub.prowler.com/check/ec2_ebs_volume_protected_by_backup_plan
+
+
+ec2_instance_internet_facing_with_instance_profile:
+  method: cli_or_console
+
+  description: >-
+    Avoid direct Internet exposure. Place workloads behind an **Application Load Balancer** and protect HTTP apps with **WAF**.
+    Remove public IPs or restrict ingress to trusted sources. Apply **least privilege** to instance profiles and enforce **IMDSv2**.
+    Use **bastion hosts** or **Session Manager** for admin access.
+
+  command_template: >-
+    aws ec2 disassociate-iam-instance-profile
+
+    --association-id <ASSOCIATION_ID>
+
+  console_steps:
+  - In the AWS Console, go to EC2 > Instances and select the instance
+  - Choose Actions > Security > Modify IAM role
+  - Set IAM role to None and click Update IAM role
+  - 'Verify the instance no longer lists an IAM role (instance profile) Alternative (if you need the role): remove internet
+    exposure'
+  - Select the instance > Networking tab
+  - If an Elastic IP is attached, choose Disassociate Elastic IP
+  - For auto-assigned public IPv4, stop the instance and relaunch without a public IP or in a subnet without auto-assign public
+    IPv4
+
+  docs_url: https://hub.prowler.com/check/ec2_instance_internet_facing_with_instance_profile
+
+
+ec2_instance_managed_by_ssm:
+  method: cli_or_console
+
+  description: >-
+    Enroll all instances as **Systems Manager managed nodes**. Prefer **Session Manager** over SSH/RDP, restrict inbound admin
+    ports, and use **least privilege** roles. Ensure connectivity to SSM endpoints (or private endpoints), automate patching
+    and inventory, and monitor activity for defense-in-depth.
+
+  command_template: >-
+    aws ec2 stop-instances
+
+    --instance-ids <INSTANCE_ID>
+
+  console_steps:
+  - 'In IAM console: Create role > AWS service > EC2 > Next; attach policy "AmazonSSMManagedInstanceCore"; Create role'
+  - 'In EC2 console: Instances > select the instance > Actions > Security > Modify IAM role > choose the role created above
+    > Update IAM role'
+  - 'Wait a few minutes; in Systems Manager console: Managed nodes, verify the instance shows as Online'
+  - If the instance OS does not include SSM Agent by default, install the SSM Agent for that OS, then verify again
+
+  docs_url: https://hub.prowler.com/check/ec2_instance_managed_by_ssm
+
+
+ec2_instance_public_ip:
+  method: console
+
+  description: >-
+    Avoid assigning public IPs unless strictly required. Place workloads in private subnets and expose only via **load balancers**
+    with **WAF**; use **bastions** or **Session Manager** for administration. Enforce **least privilege** security groups,
+    prefer **private endpoints**, and route egress via **NAT** for **defense in depth**.
+
+  command_template: null
+
+  console_steps:
+  - In the AWS Console, go to EC2 > Instances and select the instance with a public IPv4 address
+  - Check the Networking tab to see if an Elastic IP is attached
+  - 'If an Elastic IP is attached: - Go to EC2 > Elastic IPs, select the address, choose Actions > Disassociate Elastic IP'
+  - 'If the public IPv4 is auto-assigned (no Elastic IP shown): - Create a new instance (or an AMI from the current one) and,
+    during launch, in Network settings, set Auto-assign public IP to Disable - Verify the new instance has no public IPv4,
+    then migrate and terminate the old instance'
+
+  docs_url: https://hub.prowler.com/check/ec2_instance_public_ip
+
+
+ec2_networkacl_allow_ingress_any_port:
+  method: cli_or_console
+
+  description: >-
+    Adopt a **deny-by-default** NACL posture: block `0.0.0.0/0` and allow only required ports from trusted CIDRs. Apply **least
+    privilege** using security groups for fine-grained access, with NACLs as coarse stateless filters. Review and prune rules
+    regularly, and employ **defense in depth** with monitoring and alerting.
+
+  command_template: >-
+    aws ec2 replace-network-acl-entry
+
+    --network-acl-id <example_resource_id>
+
+    --ingress
+
+    --rule-number <RULE_NUMBER>
+
+    --protocol -1
+
+    --rule-action deny
+
+    --cidr-block 0.0.0.0/0
+
+  console_steps:
+  - In AWS Console, go to VPC > Network ACLs
+  - Select the NACL used by the affected subnet
+  - Open the Inbound rules tab and click Edit inbound rules
+  - Find any rule that allows 0.0.0.0/0 to all ports and change Action to Deny (or delete the allow-all rule)
+  - Save changes
+
+  docs_url: https://hub.prowler.com/check/ec2_networkacl_allow_ingress_any_port
+
+
+ec2_networkacl_allow_ingress_tcp_port_22:
+  method: cli_or_console
+
+  description: >-
+    Apply **least privilege** at the subnet layer:
+
+    - Do not allow `0.0.0.0/0` to `TCP 22`
+
+    - Restrict SSH to trusted sources, or avoid direct SSH via **Session Manager** or a bastion behind **VPN**
+
+    Pair tight **security groups** with periodic rule reviews and change control to maintain **defense in depth**.
+
+  command_template: >-
+    aws ec2 replace-network-acl-entry
+
+    --network-acl-id <NETWORK_ACL_ID>
+
+    --ingress
+
+    --rule-number <RULE_NUMBER>
+
+    --protocol 6
+
+    --rule-action deny
+
+    --cidr-block 0.0.0.0/0
+
+    --port-range From=22,To=22
+
+  console_steps:
+  - In AWS Console, go to VPC > Network ACLs
+  - Select <example_resource_name> and open the Inbound rules tab
+  - Delete any rule that ALLOWS TCP port 22 from 0.0.0.0/0 or ::/0
+  - Save changes
+  - If you cannot delete it, edit the rule and set Action to Deny for TCP port 22 with source 0.0.0.0/0 (and ::/0 if present),
+    then save
+
+  docs_url: https://hub.prowler.com/check/ec2_networkacl_allow_ingress_tcp_port_22
+
+
+ec2_networkacl_allow_ingress_tcp_port_3389:
+  method: cli_or_console
+
+  description: >-
+    Enforce **least privilege**: do not allow `TCP 3389` from `0.0.0.0/0` in network ACLs.
+
+    - Restrict RDP to specific admin IP ranges
+
+    - Prefer **bastion hosts** or **Session Manager** over direct RDP
+
+    - Use private subnets and layer controls for **defense in depth**
+
+  command_template: >-
+    aws ec2 delete-network-acl-entry
+
+    --network-acl-id <NETWORK_ACL_ID>
+
+    --ingress
+
+    --rule-number <RULE_NUMBER>
+
+  console_steps:
+  - In the AWS Console, go to VPC > Network ACLs and select the ACL used by the affected subnet(s)
+  - Open the Inbound rules tab
+  - Find any rule allowing TCP port 3389 (RDP) from 0.0.0.0/0 or ::/0
+  - Select that rule and click Delete, then Save
+  - If you must keep broad allows, instead click Edit inbound rules and add a new rule with a lower rule number that Denies
+    TCP 3389 from 0.0.0.0/0, then Save
+
+  docs_url: https://hub.prowler.com/check/ec2_networkacl_allow_ingress_tcp_port_3389
+
+
+ec2_securitygroup_not_used:
+  method: cli_or_console
+
+  description: >-
+    Apply **least privilege** and strong lifecycle management: delete or quarantine **unused security groups**, enforce ownership
+    tags and retention policies, review regularly, and manage changes via IaC with approvals. Restrict who can attach groups
+    and use guardrails to prevent reuse of stale or permissive groups.
+
+  command_template: >-
+    aws ec2 delete-security-group
+
+    --group-id <SECURITY_GROUP_ID>
+
+  console_steps:
+  - In the AWS Console, go to EC2 > Security Groups
+  - Select the non-default security group that shows Used by = 0 (no network interfaces or resources)
+  - Click Actions > Delete security group > Delete
+
+  docs_url: https://hub.prowler.com/check/ec2_securitygroup_not_used
+
+
+elbv2_alb_drop_invalid_header_fields_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable 'drop invalid header fields' on Application Load Balancers so non-RFC-compliant HTTP headers are removed before
+    requests reach backend targets, reducing exposure to HTTP desync and request smuggling. Apply defense in depth and validate
+    requests at the application layer as well.
+
+  command_template: >-
+    aws elbv2 modify-load-balancer-attributes
+
+    --load-balancer-arn <ALB_ARN>
+
+    --attributes Key=routing.http.drop_invalid_header_fields.enabled,Value=true
+
+  console_steps:
+  - Open the Amazon EC2 console and choose Load Balancers.
+  - Select the Application Load Balancer.
+  - On the Attributes tab, choose Edit.
+  - Set 'Drop invalid header fields' to Enabled.
+  - Save changes.
+
+  docs_url: https://hub.prowler.com/check/elbv2_alb_drop_invalid_header_fields_enabled
+
+
+elbv2_deletion_protection:
+  method: cli_or_console
+
+  description: >-
+    Enable **deletion protection** for production and other critical load balancers.
+
+    Enforce **least privilege** to restrict delete actions, apply governance (tags and policy guardrails) for protected assets,
+    and require **change control** with approvals. *For pipelines*, add checks that block deletion of protected resources.
+
+  command_template: >-
+    aws elbv2 modify-load-balancer-attributes
+
+    --load-balancer-arn <lb_arn>
+
+    --attributes Key=deletion_protection.enabled,Value=true
+
+  console_steps:
+  - In the AWS Console, go to EC2 > Load Balancers (under Load Balancing)
+  - Select the target load balancer
+  - Open the Attributes tab and click Edit attributes
+  - Enable Deletion protection
+  - Click Save changes
+
+  docs_url: https://hub.prowler.com/check/elbv2_deletion_protection
+
+
+elbv2_logging_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable **ALB access logging** to a dedicated, encrypted S3 bucket. Apply **least privilege** to the bucket for delivery
+    and readers, set lifecycle policies for retention, and consider `Object Lock` to deter tampering. Centralize logs in a
+    **SIEM** and alert on anomalies as part of **defense in depth**.
+
+  command_template: >-
+    aws elbv2 modify-load-balancer-attributes
+
+    --load-balancer-arn <lb_arn>
+
+    --attributes Key=access_logs.s3.enabled,Value=true Key=access_logs.s3.bucket,Value=<bucket_name>
+
+  console_steps:
+  - In AWS Console, go to EC2 > Load Balancers and select your Application Load Balancer
+  - Open the Attributes (or Edit attributes) section and find Access logs
+  - Check Enable access logs and choose the S3 bucket for delivery
+  - Save changes
+
+  docs_url: https://hub.prowler.com/check/elbv2_logging_enabled
+
+
+elbv2_ssl_listeners:
+  method: cli_or_console
+
+  description: >-
+    Enforce **TLS everywhere**: use `HTTPS` listeners and make all `HTTP` listeners redirect to `HTTPS` only. Do not forward
+    plaintext. Apply **defense in depth** with strong TLS policies and managed certificates, and consider `HSTS` to prevent
+    users from reaching `http`.
+
+  command_template: >-
+    aws elbv2 modify-listener
+
+    --listener-arn <listener_arn>
+
+    --default-actions '[{"Type":"redirect","RedirectConfig":{"Protocol":"HTTPS","Port":"443","StatusCode":"HTTP_301"}}]'
+
+  console_steps:
+  - Open the EC2 console and go to Load Balancers
+  - Select the Application Load Balancer and open the Listeners tab
+  - Select the HTTP:80 listener and choose Edit (or View/edit rules)
+  - 'Set the default action to Redirect to, Protocol: HTTPS, Port: 443, Status code: HTTP_301'
+  - Save changes
+
+  docs_url: https://hub.prowler.com/check/elbv2_ssl_listeners
+
+
+guardduty_delegated_admin_enabled_all_regions:
+  method: cli_or_console
+
+  description: >-
+    Configure a **delegated administrator** for GuardDuty via AWS Organizations. Enable GuardDuty detectors in **all opted-in
+    regions** and configure **auto-enable** to automatically enroll new member accounts. This ensures consistent threat detection
+    coverage across the entire organization.
+
+  command_template: >-
+    aws guardduty enable-organization-admin-account
+
+    --admin-account-id <ADMIN_ACCOUNT_ID> && aws guardduty update-organization-configuration
+
+    --detector-id <DETECTOR_ID>
+
+    --auto-enable-organization-members ALL
+
+  console_steps:
+  - Sign in to the AWS Organizations management account
+  - Open the AWS Organizations console
+  - Navigate to Services > Amazon GuardDuty
+  - Click Register delegated administrator and enter the security account ID
+  - Switch to the delegated admin account
+  - In GuardDuty console, go to Settings > Accounts
+  - Enable auto-enable for all organization members
+  - Repeat detector enablement for all opted-in regions
+
+  docs_url: https://hub.prowler.com/check/guardduty_delegated_admin_enabled_all_regions
+
+
+guardduty_is_enabled:
+  method: console
+
+  description: >-
+    Enable and keep **GuardDuty** active in all supported Regions and accounts under a delegated admin. Turn on relevant protection
+    plans and auto-enroll new accounts. Avoid `suspended` detectors, enforce **least privilege** for admins, and integrate
+    findings into response for **defense in depth**.
+
+  command_template: null
+
+  console_steps:
+  - Sign in to the AWS Console and open Amazon GuardDuty
+  - Switch to the target AWS Region
+  - If prompted with Get started, click Enable GuardDuty
+  - If GuardDuty is already configured but suspended, go to Settings and click Enable (or Resume) to activate the detector
+  - Repeat in each required Region
+
+  docs_url: https://hub.prowler.com/check/guardduty_is_enabled
+
+
+iam_aws_attached_policy_no_administrative_privileges:
+  method: console
+
+  description: >-
+    Apply **least privilege**: avoid attaching AWS-managed policies that grant `*:*`.
+
+    - Use **customer-managed, scoped policies** per role
+
+    - Enforce **separation of duties** and **permissions boundaries**
+
+    - Prefer **temporary, time-bound elevation** for emergencies with MFA
+
+    - Regularly review access and use conditions to constrain context
+
+  command_template: null
+
+  console_steps:
+  - In the AWS Console, go to IAM > Policies
+  - Search for the flagged AWS-managed policy (e.g., AdministratorAccess) and open it
+  - Click Attached entities
+  - Select all Users, Groups, and Roles shown and click Detach
+  - Confirm the policy shows 0 attached entities
+  - Rerun the check to verify it passes
+
+  docs_url: https://hub.prowler.com/check/iam_aws_attached_policy_no_administrative_privileges
+
+
+iam_check_saml_providers_sts:
+  method: cli_or_console
+
+  description: >-
+    Adopt **SAML federation** to issue **short-lived STS credentials**. Map users to roles with **least privilege**, enforce
+    **MFA** at the IdP, and set conservative session durations. Retire IAM user access keys for interactive use and monitor
+    role sessions as **defense in depth**. *If federation isn't possible*, tightly scope, rotate, and audit keys.
+
+  command_template: >-
+    aws iam create-saml-provider
+
+    --name <SAML_PROVIDER_NAME>
+
+    --saml-metadata-document file://<SAML_METADATA_XML_FILE>
+
+  console_steps:
+  - In the AWS console, go to IAM
+  - In the left menu, select Identity providers
+  - Click Add provider
+  - Set Provider type to SAML
+  - Upload the SAML metadata XML and enter a Provider name
+  - Click Add provider
+
+  docs_url: https://hub.prowler.com/check/iam_check_saml_providers_sts
+
+
+iam_policy_attached_only_to_group_or_roles:
+  method: console
+
+  description: >-
+    Assign permissions to **groups** (humans) and **roles** (workloads); avoid user-attached policies. Enforce **least privilege**,
+    prefer federation and temporary credentials, and use tags or **permissions boundaries** to constrain scope. Review regularly
+    to remove direct user policies and right-size access.
+
+  command_template: null
+
+  console_steps:
+  - In AWS Console, go to IAM > Users and select the target user
+  - Open the Permissions tab
+  - Under Permissions policies, remove each attached policy
+  - Under Inline policies, delete each inline policy
+  - Confirm changes; the user should show no inline or attached policies
+
+  docs_url: https://hub.prowler.com/check/iam_policy_attached_only_to_group_or_roles
+
+
+iam_role_access_not_stale_to_bedrock:
+  method: console
+
+  description: >-
+    Apply the **principle of least privilege** by regularly reviewing IAM Access Advisor data and revoking Bedrock permissions
+    that are no longer actively used.
+
+    Establish a periodic access review process and automate alerts for stale permissions to maintain a minimal attack surface.
+
+  command_template: null
+
+  console_steps:
+  - Open the IAM console and select the role
+  - Review the **Access Advisor** tab to confirm Bedrock has not been accessed recently
+  - Remove or detach any policies granting Bedrock permissions that are no longer needed
+  - If the role still requires Bedrock access, verify usage and reduce scope to least privilege
+
+  docs_url: https://hub.prowler.com/check/iam_role_access_not_stale_to_bedrock
+
+
+iam_role_cross_service_confused_deputy_prevention:
+  method: cli_or_console
+
+  description: >-
+    Constrain service-role trust to expected callers using `aws:SourceArn`/`aws:SourceAccount` to bind service principals
+    to specific resources or accounts. If unsupported, apply equivalent limits in resource-based policies or org-level controls.
+    Apply **least privilege** and review trust relationships regularly.
+
+  command_template: >-
+    aws iam update-assume-role-policy
+
+    --role-name <example_resource_name>
+
+    --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"<service>.amazonaws.com"},"Action":"sts:AssumeRole","Condition":{"StringEquals":{"aws:SourceAccount":"<ACCOUNT_ID>"}}}]}'
+
+  console_steps:
+  - In the AWS console, go to IAM > Roles
+  - Open <example_resource_name> and select the Trust relationships tab
+  - Click Edit trust policy
+  - 'In the statement for Principal Service "<service>.amazonaws.com", add a Condition block: - StringEquals: aws:SourceAccount
+    = <ACCOUNT_ID>'
+  - Save changes
+  - Re-run the check to confirm the role now prevents cross-service confused deputy attacks
+
+  docs_url: https://hub.prowler.com/check/iam_role_cross_service_confused_deputy_prevention
+
+
+iam_root_credentials_management_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable centralized root access with **root credentials management** and assign a **delegated administrator**.
+
+    Apply **least privilege** and **separation of duties** by deleting long-term root credentials in members, limiting privileged
+    tasks to short-lived sessions, enforcing **MFA**, and auditing root-related activity for **defense in depth**.
+
+  command_template: >-
+    aws iam enable-organizations-root-credentials-management
+
+  console_steps:
+  - Sign in to the AWS Management Console with the management account and open IAM
+  - In the left pane, select "Root access management" and click "Enable"
+  - In "Capabilities to enable", select only "Root credentials management"
+  - Click "Enable" to apply
+  - If prompted, enable trusted access for IAM in AWS Organizations and retry step 3
+
+  docs_url: https://hub.prowler.com/check/iam_root_credentials_management_enabled
+
+
+iam_root_hardware_mfa_enabled:
+  method: console
+
+  description: >-
+    Require a **hardware MFA token** for the root user and remove any virtual MFA. Apply **least privilege**: avoid using
+    root, disable access keys, and eliminate long-term credentials. In organizations, **centralize root management**. Keep
+    a controlled break-glass process with strict recovery checks and continuous monitoring.
+
+  command_template: null
+
+  console_steps:
+  - Sign in to the AWS Management Console as the root user
+  - 'Open My Security Credentials: https://console.aws.amazon.com/iam/home?#/security_credentials'
+  - In the Multi-factor authentication (MFA) section, choose Activate/Assign MFA
+  - 'Select a hardware option (Security key or Hardware TOTP token) and complete the prompts (for TOTP: enter the device serial
+    and two consecutive codes)'
+  - After the hardware MFA is added, locate any Virtual MFA device listed for root and Deactivate/Remove it
+  - Confirm only the hardware MFA remains assigned
+
+  docs_url: https://hub.prowler.com/check/iam_root_hardware_mfa_enabled
+
+
+iam_root_mfa_enabled:
+  method: console
+
+  description: >-
+    Enable **MFA** for the root user, preferably **hardware-based** or a dedicated, managed device. Remove root access keys
+    and avoid using root for daily tasks. Apply **least privilege** with IAM Identity Center for admins, and use Organizations
+    to **centralize root access** and eliminate long-lived root credentials.
+
+  command_template: null
+
+  console_steps:
+  - Sign in to the AWS Management Console as the root user (choose "Sign in as root user" and enter the account email)
+  - Open the account menu (top right) and click "Security credentials"
+  - In "Multi-factor authentication (MFA)", choose "Assign MFA device" (or "Activate MFA")
+  - Select "Authenticator app" and click "Next"
+  - Scan the QR code with your authenticator app and enter two consecutive MFA codes
+  - Click "Add MFA" (or "Assign MFA") to complete
+
+  docs_url: https://hub.prowler.com/check/iam_root_mfa_enabled
+
+
+iam_securityaudit_role_created:
+  method: cli_or_console
+
+  description: >-
+    Establish a dedicated **audit role** and attach the AWS managed `SecurityAudit` policy. Enforce **least privilege** and
+    **separation of duties**: restrict who can assume it, require **MFA**, monitor usage, and avoid write permissions. Prefer
+    **federated access** and regularly review and rotate access.
+
+  command_template: >-
+    aws iam attach-role-policy
+
+    --role-name <example_resource_name>
+
+    --policy-arn arn:aws:iam::aws:policy/SecurityAudit
+
+  console_steps:
+  - In the AWS Console, go to IAM > Roles
+  - Open any existing role that is appropriate for read-only security auditing
+  - Click "Add permissions" > "Attach policies"
+  - Search for "SecurityAudit", check the box for the AWS managed policy named SecurityAudit
+  - Click "Add permissions" to attach the policy (the account now has at least one role with SecurityAudit attached)
+
+  docs_url: https://hub.prowler.com/check/iam_securityaudit_role_created
+
+
+iam_support_role_created:
+  method: cli_or_console
+
+  description: >-
+    Create a dedicated IAM role for AWS Support with `AWSSupportAccess` and:
+
+    - Restrict who can assume it; require MFA and time-bound access
+
+    - Enforce **least privilege** and **separation of duties**
+
+    - Monitor usage via audit logs and review assignments regularly
+
+  command_template: >-
+    aws iam attach-role-policy
+
+    --role-name <example_resource_name>
+
+    --policy-arn arn:aws:iam::aws:policy/AWSSupportAccess
+
+  console_steps:
+  - In the AWS console, go to IAM > Roles
+  - Select any existing role you can use for support access
+  - Click Add permissions (or Attach policies)
+  - Search for "AWSSupportAccess" and select it
+  - Click Attach policies to save This immediately ensures at least one role has the AWSSupportAccess managed policy (PASS).
+
+  docs_url: https://hub.prowler.com/check/iam_support_role_created
+
+
+iam_user_hardware_mfa_enabled:
+  method: console
+
+  description: >-
+    Require **hardware-backed MFA** for all IAM users. Prefer **FIDO2 security keys** for phishing resistance over TOTP or
+    SMS. Disallow SMS/virtual MFA for privileged roles. Enforce MFA for all access paths, apply **least privilege**, and provision
+    multiple MFA devices per user for continuity.
+
+  command_template: null
+
+  console_steps:
+  - Sign in to the AWS Console and open IAM
+  - Go to Users > select <user> > Security credentials
+  - Under Multi-factor authentication (MFA), if a Virtual MFA device or SMS MFA is listed, choose Deactivate/Remove and confirm
+  - Click Assign MFA device
+  - Select Hardware TOTP token or Security key (FIDO2) and choose Next
+  - 'For Hardware TOTP: enter the device serial, then enter MFA code 1 and MFA code 2 from the token; for Security key: insert/tap
+    the key and follow the prompts'
+  - Choose Add/Save to complete
+
+  docs_url: https://hub.prowler.com/check/iam_user_hardware_mfa_enabled
+
+
+iam_user_with_temporary_credentials:
+  method: cli_or_console
+
+  description: >-
+    Adopt **temporary credentials** via IAM roles and federation for humans and workloads. Remove or restrict long-term keys;
+    *if unavoidable*, apply **least privilege**, require **MFA**, rotate aggressively, and monitor usage. Prefer short session
+    durations and session conditions to limit blast radius.
+
+  command_template: >-
+    aws iam put-user-policy
+
+    --user-name <example_resource_name>
+
+    --policy-name deny-non-iam-sts-with-long-term-creds
+
+    --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Deny","NotAction":["iam:*","sts:*"],"Resource":"*","Condition":{"Null":{"aws:TokenIssueTime":"true"}}}]}'
+
+  console_steps:
+  - In AWS Console, go to IAM > Users and select <example_resource_name>
+  - Open the Security credentials tab
+  - Under Access keys, deactivate and delete all active access keys
+  - Save changes
+  - 'Re-test: the user no longer has long-lived credentials to access non-IAM/STS services'
+
+  docs_url: https://hub.prowler.com/check/iam_user_with_temporary_credentials
+
+
+inspector2_is_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable **Amazon Inspector 2** across all regions and activate scans for **EC2**, **ECR**, **Lambda**, and **Lambda code**.
+
+    Apply **defense in depth**: auto-enable coverage for new workloads, integrate findings with patching and CI/CD gates,
+    enforce remediation SLAs, and grant only **least privilege** to process and act on findings.
+
+  command_template: >-
+    aws inspector2 enable
+
+    --resource-types EC2 ECR LAMBDA LAMBDA_CODE
+
+  console_steps:
+  - Sign in to the AWS Console and open Amazon Inspector (v2)
+  - 'If not yet activated: click Get started > Activate Amazon Inspector'
+  - 'If already activated: go to Settings > Scans and ensure EC2, ECR, Lambda functions, and Lambda code are all enabled,
+    then Save'
+
+  docs_url: https://hub.prowler.com/check/inspector2_is_enabled
+
+
+macie_is_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable and maintain **Amazon Macie** in all regions hosting **S3** data. Use continuous sensitive data discovery, apply
+    custom classifications for your data types, and route findings to monitoring. Enforce least privilege for Macie access
+    and strengthen defense in depth with restrictive bucket policies and access controls.
+
+  command_template: >-
+    aws macie2 enable-macie
+
+    --region <REGION>
+
+  console_steps:
+  - Sign in to the AWS Management Console and switch to the target region
+  - Open Amazon Macie
+  - Click Get started or Enable Macie
+  - If Macie shows Suspended/Paused, click Resume Macie
+  - Repeat in each region with S3 buckets as needed
+
+  docs_url: https://hub.prowler.com/check/macie_is_enabled
+
+
+networkfirewall_in_all_vpc:
+  method: cli_or_console
+
+  description: >-
+    Deploy **AWS Network Firewall** in each VPC or centralize inspection through a dedicated hub VPC.
+
+    Adopt a `default-deny` posture with least-privilege rules, restrict egress to required destinations, segment workloads
+    (**defense in depth**, **zero trust**), and enable logging to monitor and tune network policies.
+
+  command_template: >-
+    aws network-firewall create-firewall
+
+    --firewall-name <example_resource_name>
+
+    --firewall-policy-arn <example_resource_id>
+
+    --vpc-id <example_resource_id>
+
+    --subnet-mappings "SubnetId=<example_resource_id>"
+
+  console_steps:
+  - In the AWS Console, go to Network Firewall > Firewalls > Create firewall
+  - Enter a name and select the target VPC
+  - Select an existing Firewall policy (or create one when prompted)
+  - Add at least one subnet from the VPC under Subnet mappings
+  - Choose Create firewall
+  - Verify the firewall shows under the selected VPC
+
+  docs_url: https://hub.prowler.com/check/networkfirewall_in_all_vpc
+
+
+s3_bucket_cross_region_replication:
+  method: console
+
+  description: >-
+    Enable **CRR** to a different Region with `versioning` and least-privilege roles.
+
+    - Replicate needed prefixes and metadata
+
+    - Consider `S3 Replication Time Control` for tighter RPO
+
+    - Protect deletes via `delete marker` strategy and Object Lock
+
+    - Monitor replication metrics and test DR regularly
+
+    Align with **defense in depth** and availability by design.
+
+  command_template: null
+
+  console_steps:
+  - In the S3 console, open the source bucket
+  - Go to Properties > Bucket Versioning and click Enable
+  - Go to Management > Replication rules > Create replication rule
+  - 'Scope: Apply to all objects in the bucket'
+  - 'Destination: Select a bucket in a different AWS Region'
+  - 'Status: Ensure Enabled is selected'
+  - 'IAM role: Choose Create new role (recommended)'
+  - Save the rule
+
+  docs_url: https://hub.prowler.com/check/s3_bucket_cross_region_replication
+
+
+s3_bucket_event_notifications_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable **S3 event notifications** for relevant events (e.g., `s3:ObjectCreated:*`, `s3:ObjectRemoved:*`) and route to
+    controlled destinations (SNS, SQS, Lambda, EventBridge).
+
+    Use prefix/suffix filters, avoid recursive triggers, and enforce **least privilege** on targets. Pair with object-level
+    logging for **defense in depth**.
+
+  command_template: >-
+    aws s3api put-bucket-notification-configuration
+
+    --bucket <BUCKET_NAME>
+
+    --notification-configuration '{"EventBridgeConfiguration": {}}'
+
+  console_steps:
+  - Open the S3 console and select your bucket
+  - Go to the Properties tab
+  - In Event notifications, find Amazon EventBridge and turn it On (Enable)
+  - Click Save changes
+
+  docs_url: https://hub.prowler.com/check/s3_bucket_event_notifications_enabled
+
+
+s3_bucket_lifecycle_enabled:
+  method: cli_or_console
+
+  description: >-
+    Define **Lifecycle policies** by data classification: set `Expiration` to enforce retention, use `Transitions` to lower-cost
+    classes, and enable `AbortIncompleteMultipartUpload`. For critical logs, keep versioning and, *if required*, **Object
+    Lock**. Limit who can change lifecycle using least privilege and separation of duties.
+
+  command_template: >-
+    aws s3api put-bucket-lifecycle-configuration
+
+    --bucket <BUCKET_NAME>
+
+    --lifecycle-configuration '{"Rules":[{"Status":"Enabled","Filter":{"Prefix":""},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":7}}]}'
+
+  console_steps:
+  - In the AWS Console, go to S3 and open the target bucket
+  - Select the Management tab, then click Create lifecycle rule
+  - Enter a name and choose This rule applies to all objects in the bucket
+  - Under Lifecycle rule actions, select Clean up incomplete multipart uploads and set Days after initiation to 7
+  - Ensure Status is Enabled and click Create rule
+
+  docs_url: https://hub.prowler.com/check/s3_bucket_lifecycle_enabled
+
+
+s3_bucket_no_mfa_delete:
+  method: cli_or_console
+
+  description: >-
+    Enable **MFA Delete** on sensitive, versioned buckets so permanent deletions and `Versioning` changes require a second
+    factor. Apply **least privilege** to restrict version purge actions, enforce **change control**, and combine with **Object
+    Lock** or immutable backups for defense in depth.
+
+  command_template: >-
+    aws s3api put-bucket-versioning
+
+    --bucket <BUCKET_NAME>
+
+    --versioning-configuration Status=Enabled,MFADelete=Enabled
+
+    --mfa "<MFA_SERIAL_OR_ARN> <MFA_CODE>"
+
+  console_steps:
+  - Sign in to the AWS Management Console as the root user
+  - Open the account menu > Security credentials > Multi-factor authentication (MFA) and assign an MFA device; copy its ARN/serial
+  - 'From a machine configured to use the root user credentials, run: ```bash aws s3api put-bucket-versioning --bucket <BUCKET_NAME>
+    --versioning-configuration Status=Enabled,MFADelete=Enabled --mfa "<MFA_SERIAL_OR_ARN> <MFA_CODE>" ```'
+
+  docs_url: https://hub.prowler.com/check/s3_bucket_no_mfa_delete
+
+
+s3_bucket_object_lock:
+  method: cli_or_console
+
+  description: >-
+    Enable **Object Lock** for critical data and set appropriate default retention in `GOVERNANCE` or `COMPLIANCE` mode.
+
+    Apply **immutability** and **least privilege** by restricting permissions that bypass retention, and use legal holds when
+    you need indefinite protection for investigations or regulatory requirements.
+
+  command_template: >-
+    aws s3api put-object-lock-configuration
+
+    --bucket <BUCKET_NAME>
+
+    --object-lock-configuration '{"ObjectLockEnabled":"Enabled","Rule":{"DefaultRetention":{"Mode":"GOVERNANCE","Days":1}}}'
+
+  console_steps:
+  - Open the AWS S3 console and select the target bucket
+  - Go to the Properties tab
+  - Find Object Lock and click Edit
+  - Enable Object Lock
+  - 'Set Default retention: Mode = Governance, Days = 1'
+  - 'Click Save changes Note: If the bucket was not created with Object Lock, create a new bucket with Object Lock enabled
+    and migrate objects.'
+
+  docs_url: https://hub.prowler.com/check/s3_bucket_object_lock
+
+
+s3_bucket_object_versioning:
+  method: cli_or_console
+
+  description: >-
+    Enable **S3 versioning** for buckets holding important or shared data.
+
+    - Enforce **least privilege** to limit delete/overwrite
+
+    - Use **Object Lock** and/or **MFA Delete** for stronger protection
+
+    - Apply **lifecycle rules** to manage noncurrent versions and costs
+
+    - Layer with backups/replication for **defense in depth**
+
+  command_template: >-
+    aws s3api put-bucket-versioning
+
+    --bucket <BUCKET_NAME>
+
+    --versioning-configuration Status=Enabled
+
+  console_steps:
+  - In the AWS Console, go to S3 > Buckets and select the target bucket
+  - Open the Properties tab
+  - Find Bucket Versioning and click Edit
+  - Select Enable and click Save changes
+
+  docs_url: https://hub.prowler.com/check/s3_bucket_object_versioning
+
+
+s3_bucket_server_access_logging_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable **server access logging** and send logs to a dedicated log bucket with least privilege, retention, and monitoring.
+    Complement with **CloudTrail data events** for object-level visibility. Apply **defense in depth** by centralizing logs
+    and protecting them from tampering.
+
+  command_template: >-
+    aws s3api put-bucket-logging
+
+    --bucket <BUCKET_NAME>
+
+    --bucket-logging-status '{"LoggingEnabled":{"TargetBucket":"<LOG_BUCKET>","TargetPrefix":"logs/"}}'
+
+  console_steps:
+  - Open the AWS Management Console and go to S3
+  - Select the bucket with the finding
+  - Go to the Properties tab
+  - In Server access logging, click Edit
+  - Toggle Enable, choose the target log bucket, and Save
+
+  docs_url: https://hub.prowler.com/check/s3_bucket_server_access_logging_enabled
+
+
+sagemaker_clarify_exists:
+  method: cli_or_console
+
+  description: >-
+    Create SageMaker Clarify processing jobs to evaluate models for bias and explainability before deployment. Integrate Clarify
+    into your ML pipeline to ensure responsible AI practices.
+
+  command_template: >-
+    aws sagemaker create-processing-job
+
+    --processing-job-name clarify-bias-check
+
+    --app-specification ImageUri=<clarify-image-uri>
+
+    --role-arn <role-arn>
+
+    --processing-resources 'ClusterConfig={InstanceCount=1,InstanceType=ml.m5.xlarge,VolumeSizeInGB=20}'
+
+  console_steps:
+  - Open the AWS Console and go to Amazon SageMaker
+  - Navigate to Processing > Processing jobs
+  - Click Create processing job
+  - Select the SageMaker Clarify container image for your region
+  - Configure input/output paths and the analysis configuration
+  - Click Create processing job
+
+  docs_url: https://hub.prowler.com/check/sagemaker_clarify_exists
+
+
+sagemaker_models_monitor_enabled:
+  method: guide
+
+  description: >-
+    Enable **Amazon SageMaker Model Monitor** and keep at least one **monitoring schedule** in the `Scheduled` state so data
+    quality, model quality, and bias drift are continuously evaluated against a baseline.
+
+  command_template: null
+
+  console_steps: []
+
+  docs_url: https://hub.prowler.com/check/sagemaker_models_monitor_enabled
+
+
+sagemaker_models_registry_in_use:
+  method: cli_or_console
+
+  description: >-
+    Register all production models in the **SageMaker Model Registry** and enforce an approval workflow before deployment.
+    Ensure at least one model package per group reaches **Approved** status. Use **IAM policies** to restrict who can approve
+    model packages and integrate with **CI/CD pipelines** to automate registration.
+
+  command_template: >-
+    aws sagemaker list-model-package-groups
+
+    aws sagemaker list-model-packages
+
+    --model-package-group-name <group-name>
+
+    aws sagemaker update-model-package
+
+    --model-package-arn <arn>
+
+    --model-approval-status Approved
+
+  console_steps:
+  - In the AWS console, navigate to SageMaker > Models > Model Registry.
+  - Create a Model Package Group if none exists.
+  - Register a model version in the group.
+  - Review and approve at least one model package by setting its approval status to Approved.
+
+  docs_url: https://hub.prowler.com/check/sagemaker_models_registry_in_use
+
+
+securityhub_delegated_admin_enabled_all_regions:
+  method: cli_or_console
+
+  description: >-
+    Configure a **delegated administrator** for AWS Security Hub via AWS Organizations. Enable Security Hub in **all opted-in
+    regions** and turn on **auto-enable** so new member accounts are automatically enrolled. This ensures uniform security
+    posture monitoring across the entire organization.
+
+  command_template: >-
+    aws securityhub enable-organization-admin-account
+
+    --admin-account-id <ADMIN_ACCOUNT_ID> && aws securityhub update-organization-configuration
+
+    --auto-enable
+
+    --auto-enable-standards DEFAULT
+
+  console_steps:
+  - Sign in to the AWS Organizations management account
+  - Open the AWS Organizations console
+  - Navigate to Services > AWS Security Hub
+  - Click Register delegated administrator and enter the security account ID
+  - Switch to the delegated admin account
+  - In Security Hub console, go to Settings > Accounts
+  - Enable auto-enable for new organization accounts
+  - Repeat hub enablement for all opted-in regions
+
+  docs_url: https://hub.prowler.com/check/securityhub_delegated_admin_enabled_all_regions
+
+
+securityhub_enabled:
+  method: console
+
+  description: >-
+    - Enable in all required accounts/Regions
+
+    - Turn on relevant **standards** (`AWS FSBP`, `CIS`)
+
+    - Connect AWS and third-party **integrations**
+
+    - Use **central configuration** and **least privilege**
+
+    - Automate triage and monitor continuously for **defense in depth**
+
+  command_template: null
+
+  console_steps:
+  - Open the AWS console and go to Security Hub
+  - 'If prompted (first use): click Enable Security Hub and keep the default standards selected, then choose Enable'
+  - 'If Security Hub is already enabled: go to Security standards and enable AWS Foundational Security Best Practices'
+  - Wait for the status to show Enabled
+
+  docs_url: https://hub.prowler.com/check/securityhub_enabled
+
+
+ssmincidents_enabled_with_plans:
+  method: console
+
+  description: >-
+    Establish an `ACTIVE` **replication set** and create **response plans** that define engagement, escalation, runbooks,
+    severity, and communication.
+
+    Apply **least privilege** to automation roles, test plans regularly, integrate with monitoring to trigger them, and use
+    **defense in depth** with redundant contacts and Regions.
+
+  command_template: null
+
+  console_steps:
+  - In the AWS Console, go to Systems Manager > Incident Manager
+  - Replication sets > Create replication set > add at least one Region > Create; wait until Status is ACTIVE
+  - Response plans > Create response plan > set Name, Title, and Impact > Create
+  - 'Verify: Replication set shows ACTIVE and at least one response plan exists'
+
+  docs_url: https://hub.prowler.com/check/ssmincidents_enabled_with_plans
+
+
+trustedadvisor_premium_support_plan_subscribed:
+  method: console
+
+  description: >-
+    Adopt **Business** or higher for production and mission-critical accounts.
+
+    - Integrate Support into IR with defined contacts/severity
+
+    - Enforce **least privilege** for case access
+
+    - Use Trusted Advisor for proactive hardening
+
+    - If opting out, ensure an equivalent 24/7 support and escalation path
+
+  command_template: null
+
+  console_steps:
+  - Sign in to the AWS Management Console as the account root user
+  - Open https://console.aws.amazon.com/support/home#/plans
+  - Click "Change plan"
+  - Select "Business Support" (or higher) and click "Continue"
+  - Review and confirm the upgrade
+
+  docs_url: https://hub.prowler.com/check/trustedadvisor_premium_support_plan_subscribed
+
+
+vpc_different_regions:
+  method: cli_or_console
+
+  description: >-
+    Adopt a **multi-region network design**:
+
+    - Create VPCs in at least two regions for critical workloads
+
+    - Replicate routing, security controls, and endpoints consistently
+
+    - Apply **fault tolerance** and **defense in depth** with data replication and resilient DNS/failover to avoid single-region
+    dependency
+
+  command_template: >-
+    aws ec2 create-vpc
+
+    --region <OTHER_REGION>
+
+    --cidr-block <CIDR_BLOCK>
+
+  console_steps:
+  - Open the AWS Console and go to VPC
+  - In the Region selector (top right), choose a different region than your existing non-default VPCs
+  - Click Create VPC > VPC only
+  - Enter an IPv4 CIDR block (e.g., 10.0.0.0/16)
+  - Click Create VPC
+  - Verify a non-default VPC now exists in this second region
+
+  docs_url: https://hub.prowler.com/check/vpc_different_regions
+
+
+vpc_endpoint_for_ec2_enabled:
+  method: cli_or_console
+
+  description: >-
+    Use an **interface VPC endpoint** for the EC2 service in each VPC that requires EC2 API access.
+
+    - Enable **private DNS** to keep calls on the AWS network
+
+    - Apply restrictive endpoint policies (least privilege)
+
+    - Reduce reliance on public egress and layer controls for **defense in depth**
+
+  command_template: >-
+    aws ec2 create-vpc-endpoint
+
+    --vpc-id <VPC_ID>
+
+    --service-name com.amazonaws.<REGION>.ec2
+
+    --vpc-endpoint-type Interface
+
+    --subnet-ids <SUBNET_ID>
+
+  console_steps:
+  - In the AWS console, go to VPC > Endpoints
+  - Click Create endpoint
+  - For Service category, choose AWS services and select Service name com.amazonaws.<region>.ec2
+  - Select your VPC and at least one subnet
+  - Click Create endpoint
+
+  docs_url: https://hub.prowler.com/check/vpc_endpoint_for_ec2_enabled
+
+
+vpc_flow_logs_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable **VPC Flow Logs** for all VPCs to provide baseline telemetry.
+
+    Prefer capturing at least `REJECT` and, for sensitive networks, `ALL`. Send logs to a centralized, access-controlled destination
+    with retention. Apply **least privilege** to writers/readers and integrate with monitoring for **defense in depth**.
+
+  command_template: >-
+    aws ec2 create-flow-logs
+
+    --resource-type VPC
+
+    --resource-ids <VPC_ID>
+
+    --traffic-type ALL
+
+    --log-destination-type s3
+
+    --log-destination arn:aws:s3:::<S3_BUCKET_NAME>
+
+  console_steps:
+  - In the AWS Console, go to VPC > Your VPCs
+  - Select the target VPC
+  - Open the Flow logs tab and click Create flow log
+  - Set Traffic type to All
+  - 'Set Destination to S3 and enter Bucket ARN: arn:aws:s3:::<example_resource_name>'
+  - Click Create flow log
+
+  docs_url: https://hub.prowler.com/check/vpc_flow_logs_enabled
+
+
+vpc_subnet_no_public_ip_by_default:
+  method: cli_or_console
+
+  description: >-
+    Disable subnet auto-assign to enforce **least-privilege exposure**. Place workloads in **private subnets**, use controlled
+    egress (NAT or private endpoints), and prefer bastions or SSM for administration.
+
+    *When public access is necessary*, assign IPs explicitly and restrict with tight security groups and routes for **defense
+    in depth**.
+
+  command_template: >-
+    aws ec2 modify-subnet-attribute
+
+    --subnet-id <SUBNET_ID>
+
+    --no-map-public-ip-on-launch
+
+  console_steps:
+  - Open the AWS Console and go to VPC
+  - Click Subnets and select the target subnet
+  - Choose Actions > Edit subnet settings (or Modify auto-assign IP settings)
+  - Uncheck Enable auto-assign public IPv4 address
+  - Save changes
+
+  docs_url: https://hub.prowler.com/check/vpc_subnet_no_public_ip_by_default
+
+
+vpc_subnet_separate_private_public:
+  method: console
+
+  description: >-
+    Segment each VPC: put internet-facing endpoints in **public subnets** and internal workloads in **private subnets**. Restrict
+    ingress/egress with tight route tables, NACLs, and security groups, minimizing `0.0.0.0/0`. Apply **least privilege**
+    and **defense in depth**. Provide controlled outbound for private subnets via managed egress and use hardened admin access
+    patterns.
+
+  command_template: null
+
+  console_steps:
+  - In the AWS console, go to VPC > Your VPCs and select the failing VPC
+  - 'Attach an Internet Gateway if none exists: Internet Gateways > Create > Attach to the VPC'
+  - 'Create two subnets: Subnets > Create subnet - Subnet A (public): CIDR e.g., 10.0.1.0/24 - Subnet B (private): CIDR e.g.,
+    10.0.2.0/24'
+  - 'Create a route table for public subnet: Route tables > Create - Add route: 0.0.0.0/0 -> Internet Gateway (IGW) - Associate
+    this route table to Subnet A (public)'
+  - 'Create a route table for private subnet: Route tables > Create - Do not add a route to an Internet Gateway - Associate
+    this route table to Subnet B (private)'
+  - Verify the VPC now has at least one subnet with an IGW route (public) and one without (private)
+
+  docs_url: https://hub.prowler.com/check/vpc_subnet_separate_private_public
+
+
+wafv2_webacl_logging_enabled:
+  method: cli_or_console
+
+  description: >-
+    Enable **logging** on all WAFv2 Web ACLs to a centralized destination. Apply **least privilege** for log delivery, **redact
+    sensitive fields**, and filter to retain high-value events. Integrate with monitoring/SIEM for **alerting and correlation**,
+    and review routinely as part of **defense in depth**.
+
+  command_template: >-
+    aws wafv2 put-logging-configuration
+
+    --logging-configuration ResourceArn=<WEB_ACL_ARN>,LogDestinationConfigs=<DESTINATION_ARN>
+
+  console_steps:
+  - In the AWS Console, go to AWS WAF & Shield > Web ACLs
+  - Select the target Web ACL
+  - Open the Logging and metrics (or Logging) section and click Enable logging
+  - Choose a log destination (CloudWatch Logs log group, S3 bucket, or Kinesis Data Firehose)
+  - Click Save to enable logging
+
+  docs_url: https://hub.prowler.com/check/wafv2_webacl_logging_enabled

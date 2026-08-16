@@ -1,166 +1,98 @@
 policies:
-  # ============================================================
-# S3 정책 모음
-#
-# Prowler check_id의 "_"를 "-"로 변경한 값을
-# Custodian policy name으로 사용한다.
-#
-# mapping.yml:
-#   s3_account_level_public_access_blocks
-#
-# policy:
-#   s3-account-level-public-access-blocks
-#
-# 실행은 --dryrun을 기본으로 하므로 실제 변경은 수행하지 않는다.
-# ============================================================
-
-  - name: s3-account-level-public-access-blocks
-    resource: aws.account
-
-    description: >
-      계정 수준 S3 Public Access Block 4개 항목이
-      모두 활성화되어 있지 않은 계정
-
-    metadata:
-      prowler_check: s3_account_level_public_access_blocks
-
-      approve:
-        disruption: access
-        blast_radius: account
-        propagation_delay: minutes
-        reversible: true
-        cost_impact: none
-        risk_note: >-
-          계정 전체의 S3 Public Access Block 설정을 변경하면 기존 공개 접근이 필요한 버킷이나 애플리케이션의 접근이 차단될 수 있으므로 승인 후 실행한다
-
-    filters:
-      - or:
-          - type: s3-public-block
-            key: BlockPublicAcls
-            op: ne
-            value: true
-
-          - type: s3-public-block
-            key: BlockPublicPolicy
-            op: ne
-            value: true
-
-          - type: s3-public-block
-            key: IgnorePublicAcls
-            op: ne
-            value: true
-
-          - type: s3-public-block
-            key: RestrictPublicBuckets
-            op: ne
-            value: true
-
-    actions:
-      - type: set-s3-public-block
-        state: true
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-
-  # ----------------------------------------------------------
-  # s3_bucket_kms_encryption
-  #
-  # SSE-KMS가 기본 암호화로 설정되지 않은 Bucket을 찾고
-  # SSE-KMS를 기본 암호화로 설정한다.
-  #
-  # 기존 애플리케이션의 KMS 권한이나 Cross-Account 접근에
-  # 영향을 줄 수 있으므로 mapping.yml에서는 approve.
-  # ----------------------------------------------------------
-
-  - name: s3-bucket-kms-encryption
-    resource: aws.s3
-
-    description: >
-      기본 암호화가 SSE-KMS로 설정되어 있지 않은 S3 Bucket
-
-    metadata:
-      prowler_check: s3_bucket_kms_encryption
-
-      approve:
-        disruption: access
-        blast_radius: resource
-        propagation_delay: minutes
-        reversible: true
-        cost_impact: low
-        risk_note: >-
-          SSE-KMS 기본 암호화 적용 후 새로 저장되는 객체는 KMS 권한이 필요할 수 있으며, cross-account 접근 및 KMS 요청 비용에 영향을 줄 수 있으므로 승인 후 실행한다
-
-    filters:
-      - not:
-          - type: bucket-encryption
-            state: true
-            crypto: aws:kms
-
-    actions:
-      - type: set-bucket-encryption
-        crypto: aws:kms
-        key: alias/aws/s3
-        bucket-key: true
-
-
-  # ----------------------------------------------------------
-  # s3_bucket_secure_transport_policy
-  #
-  # HTTP 요청을 명시적으로 차단하는 Bucket Policy가
-  # 없는 Bucket을 찾는다.
-  #
-  # aws:SecureTransport=false 요청을 Deny하여
-  # HTTPS 사용을 강제한다.
-  #
-  # 기존 HTTP 접근이 중단될 수 있으므로
-  # mapping.yml에서는 approve.
-  # ----------------------------------------------------------
-
-  - name: s3-bucket-secure-transport-policy
-    resource: aws.s3
-
-    description: >
-      HTTP 요청을 명시적으로 차단하는
-      SecureTransport Bucket Policy가 없는 S3 Bucket
-
-    metadata:
-      prowler_check: s3_bucket_secure_transport_policy
-
-      approve:
-        disruption: traffic
-        blast_radius: resource
-        propagation_delay: minutes
-        reversible: true
-        cost_impact: none
-        risk_note: >-
-          HTTPS를 강제하는 Bucket Policy를 추가하면 기존 HTTP 기반 S3 접근이 차단될 수 있으므로 승인 후 실행한다
-
-    filters:
-      - not:
-          - type: has-statement
-            statements:
-              - Effect: Deny
-                Principal: "*"
-                Action: "s3:*"
-                Resource: "arn:aws:s3:::{bucket_name}/*"
-                Condition:
-                  Bool:
-                    "aws:SecureTransport": "false"
-                PartialMatch:
-                  - Action
-                  - Resource
-
-    actions:
-      - type: set-statements
-        statements:
-          - Sid: DenyInsecureTransport
-            Effect: Deny
-            Principal: "*"
-            Action: "s3:*"
-            Resource:
-              - "arn:aws:s3:::{bucket_name}"
-              - "arn:aws:s3:::{bucket_name}/*"
-            Condition:
-              Bool:
-                "aws:SecureTransport": false
+- name: s3-account-level-public-access-blocks
+  resource: aws.account
+  description: S3 계정 Public Access Block 항목 중 하나 이상이 비활성화된 계정을 탐지하고, set-s3-public-block으로 네 항목을 모두 활성화한다.
+  filters:
+  - or:
+    - type: s3-public-block
+      key: BlockPublicAcls
+      op: ne
+      value: true
+    - type: s3-public-block
+      key: BlockPublicPolicy
+      op: ne
+      value: true
+    - type: s3-public-block
+      key: IgnorePublicAcls
+      op: ne
+      value: true
+    - type: s3-public-block
+      key: RestrictPublicBuckets
+      op: ne
+      value: true
+  actions:
+  - type: set-s3-public-block
+    state: true
+    BlockPublicAcls: true
+    BlockPublicPolicy: true
+    IgnorePublicAcls: true
+    RestrictPublicBuckets: true
+  metadata:
+    prowler_check: s3_account_level_public_access_blocks
+    approve:
+      disruption: access
+      blast_radius: account
+      propagation_delay: minutes
+      reversible: true
+      cost_impact: none
+      risk_note: 계정 전체의 S3 Public Access Block 설정을 변경하면 기존 공개 접근이 필요한 버킷이나 애플리케이션의 접근이 차단될 수 있으므로 승인 후 실행한다
+- name: s3-bucket-kms-encryption
+  resource: aws.s3
+  description: 기본 암호화가 AES256인 S3 Bucket을 탐지하고, set-bucket-encryption으로 SSE-KMS 기본 암호화를 설정한다.
+  filters:
+  - type: bucket-encryption
+    state: true
+    crypto: AES256
+  actions:
+  - type: set-bucket-encryption
+    crypto: aws:kms
+    key: alias/aws/s3
+    bucket-key: true
+  metadata:
+    prowler_check: s3_bucket_kms_encryption
+    approve:
+      disruption: access
+      blast_radius: resource
+      propagation_delay: minutes
+      reversible: true
+      cost_impact: low
+      risk_note: SSE-KMS 기본 암호화 적용 후 새로 저장되는 객체는 KMS 권한이 필요할 수 있으며, cross-account 접근 및 KMS 요청 비용에 영향을 줄 수 있으므로 승인 후 실행한다
+- name: s3-bucket-secure-transport-policy
+  resource: aws.s3
+  description: HTTP 요청 거부문이 없는 S3 Bucket을 탐지하고, set-statements로 aws:SecureTransport=false 요청을 거부한다.
+  filters:
+  - not:
+    - type: has-statement
+      statements:
+      - Effect: Deny
+        Principal: '*'
+        Action: s3:*
+        Resource: arn:aws:s3:::{bucket_name}/*
+        Condition:
+          Bool:
+            aws:SecureTransport: 'false'
+        PartialMatch:
+        - Action
+        - Resource
+  actions:
+  - type: set-statements
+    statements:
+    - Sid: DenyInsecureTransport
+      Effect: Deny
+      Principal: '*'
+      Action: s3:*
+      Resource:
+      - arn:aws:s3:::{bucket_name}
+      - arn:aws:s3:::{bucket_name}/*
+      Condition:
+        Bool:
+          aws:SecureTransport: 'false'
+  metadata:
+    prowler_check: s3_bucket_secure_transport_policy
+    approve:
+      disruption: traffic
+      blast_radius: resource
+      propagation_delay: minutes
+      reversible: true
+      cost_impact: none
+      risk_note: HTTPS를 강제하는 Bucket Policy를 추가하면 기존 HTTP 기반 S3 접근이 차단될 수 있으므로 승인 후 실행한다

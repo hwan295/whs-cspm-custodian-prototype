@@ -1,212 +1,255 @@
-﻿# ============================================================
-# IAM 정책 모음
-#
-# mapping.yml 에 등록된 IAM check_id 에 대응하는
-# Custodian 정책을 하나의 파일에서 관리한다.
-#
-# 이번 파일은 auto_eligible=true 인 IAM Password Policy 6개의
-# 뼈대만 작성한다. filters / actions 는 Custodian 문법 확인 후
-# 후속 작업에서 채운다.
-# ============================================================
-
 policies:
-
-  # ----------------------------------------------------------
-  # iam_password_policy_lowercase
-  #
-  # 계정 전체 IAM Password Policy 의
-  # RequireLowercaseCharacters 를 true 로 설정한다.
-  # ----------------------------------------------------------
-
   - name: iam-password-policy-lowercase
     resource: aws.account
-
-    description: >
-      IAM 계정 Password Policy 의 소문자 요구 조건이
-      활성화되어 있지 않은 계정
-
-    filters: []  # TODO: Custodian filter 문법 확인
-    actions: []  # TODO: Custodian action 문법 확인 후 작성
-
+    description: 소문자 요구가 비활성화된 IAM Password Policy를 탐지하고, set-password-policy로 RequireLowercaseCharacters를 활성화한다.
+    filters:
+      - type: password-policy
+        key: RequireLowercaseCharacters
+        value: false
+    actions:
+      - type: set-password-policy
+        policy:
+          RequireLowercaseCharacters: true
     metadata:
       prowler_check: iam_password_policy_lowercase
-
       approve:
-        disruption: access
+        disruption: none
         blast_radius: account
         propagation_delay: immediate
         reversible: true
         cost_impact: none
-        risk_note: >-
-          IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장
-
+        risk_note: IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장
       auto:
-        warning: >
-          Auto 활성화 시 opt-in한 계정에서 동일 위반이 다시 탐지되면 사용자 승인 없이 해당 IAM Password Policy 요구 조건이 자동으로 적용됩니다. 이후 비밀번호 변경 시 새 요구사항이 적용될 수 있습니다.
+        warning:
+          "Auto 활성화 시 opt-in한 계정에서 동일 위반이 다시 탐지되면 사용자 승인 없이 해당 IAM Password Policy 요구 조건이 자동으로 적용됩니다. 이후 비밀번호 변경 시 새 요구사항이 적용될 수 있습니다.
 
+          "
         allowed_scopes:
           - account
-
         rollback_cli: null
         cooldown: 24h
         post_notification: log
   - name: iam-password-policy-minimum-length-14
     resource: aws.account
-
-    description: >
-      IAM 계정 Password Policy 의 최소 비밀번호 길이가
-      14 미만인 계정
-
-    filters: []  # TODO: Custodian filter 문법 확인
-    actions: []  # TODO: Custodian action 문법 확인 후 작성
-
+    description: 최소 길이가 14자 미만인 IAM Password Policy를 탐지하고, set-password-policy로 MinimumPasswordLength를 14로 설정한다.
+    filters:
+      - type: password-policy
+        key: MinimumPasswordLength
+        value: 14
+        op: lt
+    actions:
+      - type: set-password-policy
+        policy:
+          MinimumPasswordLength: 14
     metadata:
       prowler_check: iam_password_policy_minimum_length_14
-
       approve:
-        disruption: access
+        disruption: none
         blast_radius: account
         propagation_delay: immediate
         reversible: true
         cost_impact: none
-        risk_note: >-
-          IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장
-
+        risk_note: IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장
       auto:
-        warning: >
-          Auto 활성화 시 opt-in한 계정에서 동일 위반이 다시 탐지되면 사용자 승인 없이 해당 IAM Password Policy 요구 조건이 자동으로 적용됩니다. 이후 비밀번호 변경 시 새 요구사항이 적용될 수 있습니다.
+        warning:
+          "Auto 활성화 시 opt-in한 계정에서 동일 위반이 다시 탐지되면 사용자 승인 없이 해당 IAM Password Policy 요구 조건이 자동으로 적용됩니다. 이후 비밀번호 변경 시 새 요구사항이 적용될 수 있습니다.
 
+          "
         allowed_scopes:
           - account
-
         rollback_cli: null
         cooldown: 24h
         post_notification: log
   - name: iam-password-policy-number
     resource: aws.account
-
-    description: >
-      IAM 계정 Password Policy 의 숫자 포함 요구 조건이
-      활성화되어 있지 않은 계정
-
-    filters: []  # TODO: Custodian filter 문법 확인
-    actions: []  # TODO: Custodian action 문법 확인 후 작성
-
+    description: 숫자 요구가 비활성화된 IAM Password Policy를 탐지하고, set-password-policy로 RequireNumbers를 활성화한다.
+    filters:
+      - type: password-policy
+        key: RequireNumbers
+        value: false
+    actions:
+      - type: set-password-policy
+        policy:
+          RequireNumbers: true
     metadata:
       prowler_check: iam_password_policy_number
-
       approve:
-        disruption: access
+        disruption: none
         blast_radius: account
         propagation_delay: immediate
         reversible: true
         cost_impact: none
-        risk_note: >-
-          IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장
-
+        risk_note: IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장
       auto:
-        warning: >
-          Auto 활성화 시 opt-in한 계정에서 동일 위반이 다시 탐지되면 사용자 승인 없이 해당 IAM Password Policy 요구 조건이 자동으로 적용됩니다. 이후 비밀번호 변경 시 새 요구사항이 적용될 수 있습니다.
+        warning:
+          "Auto 활성화 시 opt-in한 계정에서 동일 위반이 다시 탐지되면 사용자 승인 없이 해당 IAM Password Policy 요구 조건이 자동으로 적용됩니다. 이후 비밀번호 변경 시 새 요구사항이 적용될 수 있습니다.
 
+          "
         allowed_scopes:
           - account
-
         rollback_cli: null
         cooldown: 24h
         post_notification: log
   - name: iam-password-policy-reuse-24
     resource: aws.account
-
-    description: >
-      IAM 계정 Password Policy 의 이전 비밀번호 재사용 방지가
-      최근 24개 미만으로 설정된 계정
-
-    filters: []  # TODO: Custodian filter 문법 확인
-    actions: []  # TODO: Custodian action 문법 확인 후 작성
-
+    description: 재사용 방지가 없거나 24개 미만인 IAM Password Policy를 탐지하고, set-password-policy로 PasswordReusePrevention을 24로 설정한다.
+    filters:
+      - or:
+          - type: password-policy
+            key: PasswordReusePrevention
+            value: absent
+          - type: password-policy
+            key: PasswordReusePrevention
+            value: 24
+            op: lt
+    actions:
+      - type: set-password-policy
+        policy:
+          PasswordReusePrevention: 24
     metadata:
       prowler_check: iam_password_policy_reuse_24
-
       approve:
-        disruption: access
+        disruption: none
         blast_radius: account
         propagation_delay: immediate
         reversible: true
         cost_impact: none
-        risk_note: >-
-          IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장
-
+        risk_note: IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장
       auto:
-        warning: >
-          Auto 활성화 시 opt-in한 계정에서 동일 위반이 다시 탐지되면 사용자 승인 없이 해당 IAM Password Policy 요구 조건이 자동으로 적용됩니다. 이후 비밀번호 변경 시 새 요구사항이 적용될 수 있습니다.
+        warning:
+          "Auto 활성화 시 opt-in한 계정에서 동일 위반이 다시 탐지되면 사용자 승인 없이 해당 IAM Password Policy 요구 조건이 자동으로 적용됩니다. 이후 비밀번호 변경 시 새 요구사항이 적용될 수 있습니다.
 
+          "
         allowed_scopes:
           - account
-
         rollback_cli: null
         cooldown: 24h
         post_notification: log
   - name: iam-password-policy-symbol
     resource: aws.account
-
-    description: >
-      IAM 계정 Password Policy 의 특수문자 포함 요구 조건이
-      활성화되어 있지 않은 계정
-
-    filters: []  # TODO: Custodian filter 문법 확인
-    actions: []  # TODO: Custodian action 문법 확인 후 작성
-
+    description: 특수문자 요구가 비활성화된 IAM Password Policy를 탐지하고, set-password-policy로 RequireSymbols를 활성화한다.
+    filters:
+      - type: password-policy
+        key: RequireSymbols
+        value: false
+    actions:
+      - type: set-password-policy
+        policy:
+          RequireSymbols: true
     metadata:
       prowler_check: iam_password_policy_symbol
-
       approve:
-        disruption: access
+        disruption: none
         blast_radius: account
         propagation_delay: immediate
         reversible: true
         cost_impact: none
-        risk_note: >-
-          IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장
-
+        risk_note: IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장
       auto:
-        warning: >
-          Auto 활성화 시 opt-in한 계정에서 동일 위반이 다시 탐지되면 사용자 승인 없이 해당 IAM Password Policy 요구 조건이 자동으로 적용됩니다. 이후 비밀번호 변경 시 새 요구사항이 적용될 수 있습니다.
+        warning:
+          "Auto 활성화 시 opt-in한 계정에서 동일 위반이 다시 탐지되면 사용자 승인 없이 해당 IAM Password Policy 요구 조건이 자동으로 적용됩니다. 이후 비밀번호 변경 시 새 요구사항이 적용될 수 있습니다.
 
+          "
         allowed_scopes:
           - account
-
         rollback_cli: null
         cooldown: 24h
         post_notification: log
   - name: iam-password-policy-uppercase
     resource: aws.account
-
-    description: >
-      IAM 계정 Password Policy 의 대문자 요구 조건이
-      활성화되어 있지 않은 계정
-
-    filters: []  # TODO: Custodian filter 문법 확인
-    actions: []  # TODO: Custodian action 문법 확인 후 작성
-
+    description: 대문자 요구가 비활성화된 IAM Password Policy를 탐지하고, set-password-policy로 RequireUppercaseCharacters를 활성화한다.
+    filters:
+      - type: password-policy
+        key: RequireUppercaseCharacters
+        value: false
+    actions:
+      - type: set-password-policy
+        policy:
+          RequireUppercaseCharacters: true
     metadata:
       prowler_check: iam_password_policy_uppercase
+      approve:
+        disruption: none
+        blast_radius: account
+        propagation_delay: immediate
+        reversible: true
+        cost_impact: none
+        risk_note: IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장
+      auto:
+        warning:
+          "Auto 활성화 시 opt-in한 계정에서 동일 위반이 다시 탐지되면 사용자 승인 없이 해당 IAM Password Policy 요구 조건이 자동으로 적용됩니다. 이후 비밀번호 변경 시 새 요구사항이 적용될 수 있습니다.
 
+          "
+        allowed_scopes:
+          - account
+        rollback_cli: null
+        cooldown: 24h
+        post_notification: log
+
+  - name: iam-role-administratoraccess-policy
+    resource: aws.iam-role
+    description: AWS 관리형 AdministratorAccess 정책이 직접 연결된 비서비스 IAM Role을 탐지하고, set-policy로 해당 정책을 Role에서 분리한다.
+    filters:
+      - type: has-specific-managed-policy
+        key: PolicyArn
+        value: arn:aws:iam::aws:policy/AdministratorAccess
+      - type: value
+        key: Path
+        op: regex
+        value: ^(?!/aws-service-role/).*
+    actions:
+      - type: set-policy
+        state: detached
+        arn: arn:aws:iam::aws:policy/AdministratorAccess
+    metadata:
+      prowler_check: iam_role_administratoraccess_policy
+      approve:
+        disruption: access
+        blast_radius: resource
+        propagation_delay: seconds
+        reversible: true
+        cost_impact: none
+        risk_note: IAM Role에서 AdministratorAccess를 제거하면 해당 Role을 사용하는 서비스의 기존 AWS 작업 권한이 제한되어 애플리케이션 동작에 영향을 줄 수 있으므로 승인 후 실행한다
+
+  - name: iam-user-administrator-access-policy
+    resource: aws.iam-user
+
+    description: >
+      AWS 관리형 AdministratorAccess 정책이 직접 연결된 IAM User를 탐지하고,
+      set-policy로 해당 정책을 User에서 분리한다.
+
+    filters:
+      - type: policy
+        key: PolicyName
+        value: AdministratorAccess
+
+    actions:
+      - type: set-policy
+        state: detached
+        arn: arn:aws:iam::aws:policy/AdministratorAccess
+
+  - name: iam-password-policy-expires-passwords-within-90-days-or-less
+    resource: aws.account
+    description: IAM Password Policy의 MaxPasswordAge가 없거나 90일을 초과한 계정을 탐지하고, set-password-policy로 최대 사용 기간을 90일로 설정한다.
+    filters:
+      - or:
+          - type: password-policy
+            key: MaxPasswordAge
+            value: absent
+          - type: password-policy
+            key: MaxPasswordAge
+            value: 90
+            op: gt
+    actions:
+      - type: set-password-policy
+        policy:
+          MaxPasswordAge: 90
+    metadata:
+      prowler_check: iam_password_policy_expires_passwords_within_90_days_or_less
       approve:
         disruption: access
         blast_radius: account
         propagation_delay: immediate
         reversible: true
         cost_impact: none
-        risk_note: >-
-          IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장
-
-      auto:
-        warning: >
-          Auto 활성화 시 opt-in한 계정에서 동일 위반이 다시 탐지되면 사용자 승인 없이 해당 IAM Password Policy 요구 조건이 자동으로 적용됩니다. 이후 비밀번호 변경 시 새 요구사항이 적용될 수 있습니다.
-
-        allowed_scopes:
-          - account
-
-        rollback_cli: null
-        cooldown: 24h
-        post_notification: log
+        risk_note: Password 만료 정책을 90일로 설정하면 오래된 비밀번호를 사용하는 IAM User에게 비밀번호 변경이 요구될 수 있어 사용자 접근에 영향을 줄 수 있으므로 승인 후 실행한다

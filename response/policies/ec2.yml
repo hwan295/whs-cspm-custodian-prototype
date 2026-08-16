@@ -1,298 +1,170 @@
-﻿# ============================================================
-# EC2 정책 모음
-#
-# mapping.yml에 등록된 EC2 check_id에 대응하는
-# Custodian 정책을 하나의 파일에서 관리한다.
-#
-# 정책 이름 규칙:
-#   check_id의 "_" -> "-"
-#
-# 실행은 --dryrun을 기본으로 한다.
-# ============================================================
-
 policies:
-
-  # ----------------------------------------------------------
-  # ec2_ebs_default_encryption
-  #
-  # 계정/리전 수준에서 EBS 기본 암호화가
-  # 비활성화되어 있는 경우를 찾는다.
-  # ----------------------------------------------------------
-
   - name: ec2-ebs-default-encryption
     resource: aws.account
-
-    description: >
-      EBS 기본 암호화가 활성화되어 있지 않은 계정
-
+    description: EBS 기본 암호화가 비활성화된 리전을 탐지하고, set-ebs-encryption으로 이후 생성되는 볼륨의 기본 암호화를 활성화한다.
+    filters:
+      - type: default-ebs-encryption
+        state: false
+    actions:
+      - type: set-ebs-encryption
+        state: true
     metadata:
       prowler_check: ec2_ebs_default_encryption
-
       approve:
         disruption: none
         blast_radius: region
         propagation_delay: immediate
         reversible: true
         cost_impact: none
-        risk_note: >-
-          계정/리전 EBS 기본 암호화 설정 변경 - 조직이 전체 암호화 정책일 때만 승격 권장
-
+        risk_note: 계정/리전 EBS 기본 암호화 설정 변경 - 조직이 전체 암호화 정책일 때만 승격 권장
       auto:
-        warning: >
-          Auto 활성화 시 opt-in한 리전에서 동일 위반이 다시 탐지되면 사용자 승인 없이 EBS 기본 암호화가 자동으로 활성화됩니다. 기존 볼륨에는 적용되지 않습니다.
+        warning:
+          "Auto 활성화 시 opt-in한 리전에서 동일 위반이 다시 탐지되면 사용자 승인 없이 EBS 기본 암호화가 자동으로 활성화됩니다. 기존 볼륨에는 적용되지 않습니다.
 
+          "
         allowed_scopes:
           - region
-
         rollback_cli: aws ec2 disable-ebs-encryption-by-default --region {region}
         cooldown: 24h
         post_notification: log
 
-    filters:
-      - type: default-ebs-encryption
-        state: false
-
-    actions:
-      - type: set-ebs-encryption
-        state: true
-
-
-  # ----------------------------------------------------------
-  # ec2_ebs_volume_snapshots_exists
-  #
-  # 연결된 Snapshot이 하나도 없는 EBS Volume을 찾는다.
-  # ----------------------------------------------------------
-
   - name: ec2-ebs-volume-snapshots-exists
     resource: aws.ebs
-
-    description: >
-      연결된 Snapshot이 하나도 없는 EBS Volume
-
+    description: Snapshot이 없는 EBS Volume을 탐지하고, snapshot action으로 해당 Volume의 Snapshot을 생성한다.
+    filters:
+      - type: snapshots
+        count: 0
+        count_op: eq
+    actions:
+      - type: snapshot
+        copy-volume-tags: true
+        tags:
+          custodian_snapshot: "true"
     metadata:
       prowler_check: ec2_ebs_volume_snapshots_exists
-
       approve:
         disruption: none
         blast_radius: resource
         propagation_delay: minutes
         reversible: true
         cost_impact: low
-        risk_note: >-
-          EBS Snapshot 생성은 가능하지만 Snapshot 저장에 추가 비용이 발생하므로 승인 후 실행한다
-
+        risk_note: EBS Snapshot 생성은 가능하지만 Snapshot 저장에 추가 비용이 발생하므로 승인 후 실행한다
       auto:
-        warning: >
-          Auto 활성화 시 opt-in한 EBS Volume에서 동일 위반이 다시 탐지되면 사용자 승인 없이 Snapshot이 자동으로 생성됩니다. Snapshot 저장 비용이 발생할 수 있습니다.
+        warning:
+          "Auto 활성화 시 opt-in한 EBS Volume에서 동일 위반이 다시 탐지되면 사용자 승인 없이 Snapshot이 자동으로 생성됩니다. Snapshot 저장 비용이 발생할 수 있습니다.
 
+          "
         allowed_scopes:
           - resource
-
         rollback_cli: null
         cooldown: 24h
         post_notification: log
 
-    filters:
-      - type: snapshots
-        count: 0
-        count_op: eq
-
-    actions:
-      - type: snapshot
-        copy-volume-tags: true
-        tags:
-          custodian_snapshot: "true"
-
-
-  # ----------------------------------------------------------
-  # ec2_instance_account_imdsv2_enabled
-  #
-  # 계정 수준 EC2 Metadata 기본 설정에서
-  # HttpTokens가 required가 아닌 경우를 찾는다.
-  # ----------------------------------------------------------
-
   - name: ec2-instance-account-imdsv2-enabled
     resource: aws.account
-
-    description: >
-      계정 수준 EC2 Metadata 기본 설정에서
-      IMDSv2가 강제되지 않은 계정
-
+    description: 리전의 EC2 Metadata 기본 HttpTokens가 required가 아닌 상태를 탐지하고, set-ec2-metadata-defaults로 required로 변경한다.
+    filters:
+      - or:
+          - type: ec2-metadata-defaults
+            key: HttpTokens
+            value: optional
+          - type: ec2-metadata-defaults
+            key: HttpTokens
+            value: absent
+    actions:
+      - type: set-ec2-metadata-defaults
+        HttpTokens: required
     metadata:
       prowler_check: ec2_instance_account_imdsv2_enabled
-
       approve:
         disruption: none
         blast_radius: region
         propagation_delay: immediate
         reversible: true
         cost_impact: none
-        risk_note: >-
-          계정 IMDS 기본값 변경 - 조직이 IMDSv2 강제 정책일 때만 승격 권장
-
+        risk_note: 계정 IMDS 기본값 변경 - 조직이 IMDSv2 강제 정책일 때만 승격 권장
       auto:
-        warning: >
-          Auto 활성화 시 opt-in한 리전에서 동일 위반이 다시 탐지되면 사용자 승인 없이 EC2 Metadata 기본값이 IMDSv2 강제로 자동 변경됩니다. 기존 인스턴스에는 소급 적용되지 않습니다.
+        warning:
+          "Auto 활성화 시 opt-in한 리전에서 동일 위반이 다시 탐지되면 사용자 승인 없이 EC2 Metadata 기본값이 IMDSv2 강제로 자동 변경됩니다. 기존 인스턴스에는 소급 적용되지 않습니다.
 
+          "
         allowed_scopes:
           - region
-
         rollback_cli: null
         cooldown: 24h
         post_notification: log
 
-    filters:
-      - or:
-          - type: ec2-metadata-defaults
-            key: HttpTokens
-            value: optional
-
-          - type: ec2-metadata-defaults
-            key: HttpTokens
-            value: no-preference
-
-          - type: ec2-metadata-defaults
-            key: HttpTokens
-            value: absent
-
-    actions:
-      - type: set-ec2-metadata-defaults
-        HttpTokens: required
-
-
-  # ----------------------------------------------------------
-  # ec2_instance_imdsv2_enabled
-  #
-  # Metadata Service가 활성화되어 있으면서
-  # HttpTokens가 optional인 EC2 Instance를 찾는다.
-  #
-  # Metadata Service 자체가 disabled라면
-  # Prowler 기준 PASS이므로 대상에서 제외한다.
-  # ----------------------------------------------------------
-
   - name: ec2-instance-imdsv2-enabled
     resource: aws.ec2
-
-    description: >
-      Metadata Service가 활성화되어 있으나
-      IMDSv2가 강제되지 않은 EC2 Instance
-
+    description: HttpTokens가 optional인 EC2 Instance를 탐지하고, set-metadata-access로 IMDSv2 토큰을 required로 변경한다.
+    filters:
+      - MetadataOptions.HttpEndpoint: enabled
+      - MetadataOptions.HttpTokens: optional
+    actions:
+      - type: set-metadata-access
+        tokens: required
     metadata:
       prowler_check: ec2_instance_imdsv2_enabled
-
       approve:
         disruption: access
         blast_radius: resource
         propagation_delay: seconds
         reversible: true
         cost_impact: none
-        risk_note: >-
-          기존 애플리케이션이나 SDK가 IMDSv1에 의존하는지 자동으로 확인할 수 없어 호환성 영향을 배제할 수 없으므로 승인 후 실행한다
-
-    filters:
-      - MetadataOptions.HttpEndpoint: enabled
-      - MetadataOptions.HttpTokens: optional
-
-    actions:
-      - type: set-metadata-access
-        tokens: required
-
-  # ----------------------------------------------------------
-  # ec2_instance_detailed_monitoring_enabled
-  #
-  # Detailed Monitoring이 비활성화된 EC2 Instance를 찾고
-  # Detailed Monitoring을 활성화한다.
-  #
-  # 추가 CloudWatch 비용이 발생할 수 있으므로
-  # mapping.yml에서는 approve.
-  # ----------------------------------------------------------
-
+        risk_note: 기존 애플리케이션이나 SDK가 IMDSv1에 의존하는지 자동으로 확인할 수 없어 호환성 영향을 배제할 수 없으므로 승인 후 실행한다
+ 
   - name: ec2-instance-detailed-monitoring-enabled
     resource: aws.ec2
-
-    description: >
-      Detailed Monitoring이 비활성화된 EC2 Instance
-
+    description: Detailed Monitoring이 비활성화된 EC2 Instance를 탐지하고, set-monitoring으로 활성화한다.
+    filters:
+      - Monitoring.State: disabled
+    actions:
+      - type: set-monitoring
+        state: enable
     metadata:
       prowler_check: ec2_instance_detailed_monitoring_enabled
-
       approve:
         disruption: none
         blast_radius: resource
         propagation_delay: minutes
         reversible: true
         cost_impact: low
-        risk_note: >-
-          EC2 Detailed Monitoring 활성화는 서비스 중단 없이 가능하지만 CloudWatch Metric에 따른 추가 비용이 발생하므로 승인 후 실행한다
-
+        risk_note: EC2 Detailed Monitoring 활성화는 서비스 중단 없이 가능하지만 CloudWatch Metric에 따른 추가 비용이 발생하므로 승인 후 실행한다
       auto:
-        warning: >
-          Auto 활성화 시 opt-in한 EC2 Instance에서 동일 위반이 다시 탐지되면 사용자 승인 없이 Detailed Monitoring이 자동으로 활성화됩니다. CloudWatch Metric 비용이 발생할 수 있습니다.
+        warning:
+          "Auto 활성화 시 opt-in한 EC2 Instance에서 동일 위반이 다시 탐지되면 사용자 승인 없이 Detailed Monitoring이 자동으로 활성화됩니다. CloudWatch Metric 비용이 발생할 수 있습니다.
 
+          "
         allowed_scopes:
           - resource
-
         rollback_cli: aws ec2 unmonitor-instances --instance-ids {instance_id}
         cooldown: 24h
         post_notification: log
-
-    filters:
-      - Monitoring.State: disabled
-
-    actions:
-      - type: set-monitoring
-        state: enable
-
-
-  # ----------------------------------------------------------
-  # ec2_securitygroup_allow_ingress_from_internet_to_any_port_from_ip
-  #
-  # Public IPv4 CIDR을 Source로 사용하는
-  # Security Group ingress rule을 찾아 제거한다.
-  #
-  # 정상적인 관리자 또는 외부 서비스 접근까지
-  # 차단할 가능성이 있으므로 mapping.yml에서는 approve.
-  # ----------------------------------------------------------
-
+        
   - name: ec2-securitygroup-allow-ingress-from-internet-to-any-port-from-ip
     resource: aws.security-group
-
-    description: >
-      Public IPv4 CIDR을 Source로 사용하는
-      ingress rule이 존재하는 Security Group
-
+    description: 특정 인터넷 IP CIDR에 모든 프로토콜과 포트가 공개된 Security Group ingress 규칙을 탐지하고, remove-permissions로 해당 규칙을 제거한다.
+    filters:
+      - or:
+          - type: ingress
+            IpProtocol: "-1"
+            Cidr:
+              op: regex
+              value: ^(?!0\.0\.0\.0/0$).+
+          - type: ingress
+            IpProtocol: "-1"
+            CidrV6:
+              op: regex
+              value: ^(?!::/0$).+
+    actions:
+      - type: remove-permissions
+        ingress: matched
     metadata:
       prowler_check: ec2_securitygroup_allow_ingress_from_internet_to_any_port_from_ip
-
       approve:
         disruption: traffic
         blast_radius: resource
         propagation_delay: seconds
-        reversible: true
+        reversible: false
         cost_impact: none
-        risk_note: >-
-          Public IP 기반 ingress rule을 제거하면 정상적인 관리자 또는 외부 서비스의 접근까지 차단될 수 있으므로 승인 후 실행한다
-
-    filters:
-      - type: ingress
-        Cidr:
-          value_type: cidr
-          op: not-in
-          value:
-            - 10.0.0.0/8
-            - 172.16.0.0/12
-            - 192.168.0.0/16
-            - 100.64.0.0/10
-            - 127.0.0.0/8
-            - 169.254.0.0/16
-            - 192.0.0.0/24
-            - 192.0.2.0/24
-            - 198.18.0.0/15
-            - 198.51.100.0/24
-            - 203.0.113.0/24
-            - 224.0.0.0/4
-            - 240.0.0.0/4
-
-    actions:
-      - type: remove-permissions
-        ingress: matched
+        risk_note: Public IP 기반 ingress rule을 제거하면 정상적인 관리자 또는 외부 서비스의 접근까지 차단될 수 있으므로 승인 후 실행한다

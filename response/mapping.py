@@ -10,7 +10,9 @@ metadata 가 담고, 이 모듈이 둘을 묶어 finding 에 붙인다.
 import yaml
 
 from .config import MAPPING_PATH
-from .policy_meta import check_auto_claim, check_prowler_link, load_meta
+from .policy_meta import (check_auto_claim, check_blast_radius,
+                          check_prowler_link, load_meta)
+from .runbook import find as find_runbook, format_guide
 
 
 def load_mapping(path=MAPPING_PATH):
@@ -34,8 +36,9 @@ DEFAULT_ENTRY = {
     # 범위 제한에 쓸 Custodian 리소스 필드 (예: S3 는 Name, EC2 는 InstanceId).
     # 없으면 범위 제한 없이 계정 전체를 대상으로 돈다
     "scope_key": None,
-    # 사람이 직접 조치할 때의 안내. 비워두면 Prowler 의 remediation.desc 를 쓴다
-    "guide": None,
+    # 사람이 직접 조치할 때 볼 runbook.yml 의 키.
+    # 없으면 Prowler 의 remediation.desc 를 쓴다
+    "runbook": None,
 }
 
 # Custodian 을 실제로 돌리는 mode.
@@ -70,9 +73,14 @@ def build_reason(finding, entry, mode):
     not_supported 든 담당자가 할 일은 같기 때문이다 - 콘솔에서 직접 고치는 것.
     안내 없이 "왜 못 하는지"만 주면 받는 사람이 할 수 있는 게 없다.
 
-    우선순위: mapping.yml 의 guide -> Prowler 의 remediation.desc
+    우선순위: runbook.yml -> Prowler 의 remediation.desc
+
+    runbook 을 먼저 보는 이유 - Prowler 안내는 영문 원문이고 우리 환경 사정을
+    담지 못한다. runbook 은 CLI 명령과 콘솔 절차까지 들어 있다.
     """
-    guide = entry.get("guide") or finding.get("remediation_desc")
+    guide = format_guide(find_runbook(entry.get("runbook")))
+    if not guide:
+        guide = finding.get("remediation_desc")
     if guide:
         return guide
     return f"조치 방법 안내 없음 (mode={mode})"
@@ -152,6 +160,8 @@ def group_by_policy(findings, mapping):
                 # 자동화 선언과 정책 속성이 어긋나는지 - 사람의 판정에 대한 이견
                 check_auto_claim(policy_name, entry.get("auto_eligible"),
                                  meta_cache[policy_name]),
+                # 판정 범위가 코드가 아는 값인지 - 모르는 값은 리소스 단위로 처리됨
+                check_blast_radius(policy_name, meta_cache[policy_name]),
             ):
                 if warning:
                     print(f"      [경고] {warning}")

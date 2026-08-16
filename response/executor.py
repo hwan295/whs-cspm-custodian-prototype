@@ -18,6 +18,7 @@ from .config import ARN_FIELDS, CUSTODIAN_TIMEOUT, OUT_DIR, WORK_DIR
 from .findings import dig
 from .mapping import build_reason
 from .optin import is_opted_in
+from .policy_meta import is_account_scoped
 from .scoping import build_scoped_policy
 
 
@@ -149,18 +150,19 @@ def verify_findings(findings, resources, scanned_account):
             )
             continue
 
-        # 계정 단위 체크는 리소스 ARN 대조가 의미 없다.
-        # 계정 설정 하나를 보는 체크에 리소스 단위로 대조하면 판정 단위가 어긋난다
-        # (예: s3_account_level_public_access_blocks).
-        # 정책에 걸린 리소스가 하나라도 있으면 "계정에 문제가 있다"로 본다
+        # 계정·리전 단위 체크는 리소스 ARN 대조가 의미 없다.
+        # 설정 하나를 보는 체크에 리소스 단위로 대조하면 판정 단위가 어긋난다
+        # (예: s3_account_level_public_access_blocks, ec2_ebs_default_encryption).
+        # 정책에 걸린 리소스가 하나라도 있으면 "설정에 문제가 있다"로 본다
         approve = (finding.get("policy_meta") or {}).get("approve") or {}
-        if approve.get("blast_radius") == "account":
+        if is_account_scoped(approve):
+            unit = approve.get("blast_radius")
             if resources:
                 finding["status"] = "still_open"
-                finding["reason"] = f"계정 단위 판정 - 대상 리소스 {len(resources)}건"
+                finding["reason"] = f"{unit} 단위 판정 - 대상 리소스 {len(resources)}건"
             else:
                 finding["status"] = "already_fixed"
-                finding["reason"] = "계정 단위 판정 - 대상 리소스 없음"
+                finding["reason"] = f"{unit} 단위 판정 - 대상 리소스 없음"
             continue
 
         if arn_missing:

@@ -73,6 +73,45 @@ def load_meta(policy_name):
     }
 
 
+# 리소스 ARN 으로 대조할 수 없는 판정 범위.
+#
+# 계정·리전·조직 설정 하나를 보는 체크는 대조할 리소스 ARN 이 애초에 없다.
+# 이런 체크에 리소스 단위 대조를 하면 판정 단위가 어긋나 "이미 조치됨"으로
+# 오독된다 - 계정 단위 체크에서 실제로 그 오답이 나온 적이 있다.
+#
+# **새 값이 생기면 여기 추가한다.** account 만 특별 취급하던 시절에 region 이
+# 추가되면서 같은 오판이 다시 생겼다. 목록으로 두면 그 반복을 막는다.
+ACCOUNT_SCOPED = ("account", "region", "multi-account")
+
+# 이 밖에 코드가 이해하는 값. 목록에 없는 값은 오타일 가능성이 높다
+KNOWN_BLAST_RADIUS = ACCOUNT_SCOPED + ("resource",)
+
+
+def is_account_scoped(approve):
+    """리소스 ARN 대조 대신 리소스 유무로 판정해야 하는가.
+
+    blast_radius 가 비어 있으면 False 다 - 모르는 것을 계정 단위로 취급하면
+    "리소스가 걸렸으니 문제 있음"으로 단정하게 된다. ARN 대조를 시도해
+    arn_not_found 로 남기는 쪽이 정직하다.
+    """
+    return (approve or {}).get("blast_radius") in ACCOUNT_SCOPED
+
+
+def check_blast_radius(policy_name, meta):
+    """blast_radius 가 코드가 아는 값인지 본다.
+
+    모르는 값은 리소스 단위로 처리되므로 계정·리전 단위 체크라면 오판이 난다.
+    반환: 경고 메시지 / 문제 없으면 None
+    """
+    value = ((meta or {}).get("approve") or {}).get("blast_radius")
+    if value is None or value in KNOWN_BLAST_RADIUS:
+        return None
+    return (
+        f"{policy_name}: blast_radius={value!r} 는 코드가 모르는 값 "
+        f"(아는 값: {', '.join(KNOWN_BLAST_RADIUS)}) - 리소스 단위로 처리됨"
+    )
+
+
 # auto 승격이 안전하려면 정책 속성이 만족해야 하는 조건.
 #
 # **자격을 결정하는 건 사람이다.** mapping.yml 의 auto_eligible 이 판정 결과이고,

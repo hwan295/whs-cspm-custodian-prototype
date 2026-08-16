@@ -30,22 +30,15 @@ policies:
     metadata:
       prowler_check: vpc_subnet_no_public_ip_by_default
 
-      remediation_summary: >
-        Subnet의 Public IP 자동 할당 설정을 비활성화한다
-
-      note: |
-        MapPublicIpOnLaunch가 true인 Subnet만 대상으로 한다.
-
-        해당 값을 false로 변경하면 이후 이 Subnet에서
-        생성되는 EC2 Instance는 Public IP를 기본으로
-        자동 할당받지 않는다.
-
-        기존 EC2 Instance에 이미 할당된 Public IP를
-        제거하는 조치는 아니다.
-
-        Public IP 자동 할당을 전제로 한 배포 스크립트나
-        네트워크 구성이 존재할 경우 영향을 받을 수 있으므로
-        mapping.yml에서는 approve로 분류한다.
+      approve:
+        disruption: none
+        blast_radius: resource
+        propagation_delay: immediate
+        reversible: true
+        cost_impact: none
+        risk_note: >-
+          Public IP 자동 할당을 전제로 한 배포 구조에서는 이후 생성되는
+          리소스의 네트워크 접근 방식에 영향을 줄 수 있으므로 승인 후 실행한다
 
     filters:
       - type: value
