@@ -76,7 +76,7 @@ def _print_request(policy_name, findings, untargeted=()):
     같이 바뀌므로 반드시 보여준다 (아래 _print_untargeted 참고).
     """
     head = findings[0]
-    # 조치 속성은 정책 파일의 metadata.approve 에 있다 (mapping.yml 은 라우팅만)
+    # 조치 속성(중단·영향 범위)은 정책 파일의 metadata.approve 에 있다
     approve = (head.get("policy_meta") or {}).get("approve") or {}
 
     print("")
@@ -98,7 +98,8 @@ def _print_request(policy_name, findings, untargeted=()):
     else:
         print(f"  조치   정책 {policy_name} 실행")
 
-    note = approve.get("risk_note")
+    # 판정 근거는 mapping.yml 에 있다 (mode 를 그렇게 정한 이유이므로)
+    note = (head.get("mapping") or {}).get("risk_note")
     if note:
         print(f"  주의   {note}")
 

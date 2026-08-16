@@ -10,7 +10,7 @@ metadata 가 담고, 이 모듈이 둘을 묶어 finding 에 붙인다.
 import yaml
 
 from .config import MAPPING_PATH
-from .policy_meta import check_prowler_link, load_meta, resolve_eligible
+from .policy_meta import check_auto_claim, check_prowler_link, load_meta
 
 
 def load_mapping(path=MAPPING_PATH):
@@ -26,6 +26,11 @@ def load_mapping(path=MAPPING_PATH):
 # 모르는 조치는 "위험하다"고 보는 쪽이 안전하므로 mode 를 manual 로 둔다.
 DEFAULT_ENTRY = {
     "mode": "manual",
+    # 판정 근거. mode 를 그렇게 정한 이유이므로 mode 와 같은 파일에 둔다
+    "risk_note": None,
+    # 자동 실행 승격 자격. 모르면 자동화하지 않는 쪽이 안전하다
+    "auto_eligible": False,
+    "auto_reason": None,
     # 범위 제한에 쓸 Custodian 리소스 필드 (예: S3 는 Name, EC2 는 InstanceId).
     # 없으면 범위 제한 없이 계정 전체를 대상으로 돈다
     "scope_key": None,
@@ -142,15 +147,20 @@ def group_by_policy(findings, mapping):
             meta_cache[policy_name] = load_meta(policy_name)
             # 정책과 매핑이 어긋나면 실행 전에 알린다. 손으로 정책을 쓰는
             # 구조라 출처 체크만 복사해 남는 실수가 생긴다
-            warning = check_prowler_link(policy_name, check_id)
-            if warning:
-                print(f"      [경고] {warning}")
+            for warning in (
+                check_prowler_link(policy_name, check_id),
+                # 자동화 선언과 정책 속성이 어긋나는지 - 사람의 판정에 대한 이견
+                check_auto_claim(policy_name, entry.get("auto_eligible"),
+                                 meta_cache[policy_name]),
+            ):
+                if warning:
+                    print(f"      [경고] {warning}")
 
         finding["policy_meta"] = meta_cache[policy_name]
         findings_by_policy.setdefault(policy_name, []).append(finding)
 
         # 남아 있는 위험은 실행 전에 눈에 띄게 알린다
-        note = (meta_cache[policy_name].get("approve") or {}).get("risk_note")
+        note = entry.get("risk_note")
         if note and check_id not in warned:
             warned.add(check_id)
             print(f"      [주의] {check_id}: {note}")
@@ -158,11 +168,3 @@ def group_by_policy(findings, mapping):
     executed = sum(len(v) for v in findings_by_policy.values())
     print(f"      실행 대상 {executed}건 / 제외 {len(findings) - executed}건")
     return findings_by_policy
-
-
-def auto_status(policy_name, meta):
-    """정책의 auto 승격 자격을 판정한다. 로그와 대시보드가 쓴다.
-
-    반환: (자격 여부, 사유)
-    """
-    return resolve_eligible(policy_name, meta or {})

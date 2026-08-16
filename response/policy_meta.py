@@ -4,13 +4,12 @@
 범위 제한(scoping)·승인(approval)·로그(reporter)가 모두 같은 파일을 보기 때문에,
 파일을 여는 코드가 흩어지면 서로 다른 정책을 집는 사고가 난다.
 
-metadata 는 두 블록으로 나뉜다.
-    approve   조치를 실행하면 무슨 일이 일어나는가 (승인 화면과 로그가 쓴다)
-    auto      승인 없이 돌려도 되는가, 돌린다면 무슨 안전장치가 필요한가
+mapping.yml 과 역할이 나뉜다.
+    mapping.yml     판정에 대한 서술 - 왜 이 mode 인가, 왜 자동화 못 하는가
+    metadata.approve 조치에 대한 서술 - 실행하면 무슨 일이 일어나는가
 
-mapping.yml 과 역할이 다르다. mapping 은 "이 체크를 어디로 보낼까"(라우팅)이고,
-여기는 "그 조치가 어떤 성질인가"(조치 속성)다. 조치 속성은 정책과 한 몸이라
-정책 파일에 둔다 - 정책을 리뷰하는 사람이 한 파일만 보고 판단할 수 있어야 한다.
+**판정 근거는 mapping.yml 에 둔다.** mode 가 manual / not_supported 면
+policy 가 null 이라 정책 파일이 아예 없고, 그러면 근거를 적을 자리가 사라진다.
 """
 
 import os
@@ -18,20 +17,6 @@ import os
 import yaml
 
 from .config import POLICY_DIR
-
-# auto 승격 자격 조건. 넷을 모두 만족해야 한다.
-#
-# 되돌릴 수 있고(reversible), 리소스 하나만 건드리고(blast_radius),
-# 서비스 중단이 없고(disruption), 되돌리는 방법이 적혀 있을 것(rollback_cli).
-#
-# 넷 다 정책 파일 안에 있어서 리뷰어가 한 파일만 보고 검증할 수 있다.
-# 계정 단위 체크는 blast_radius 에서 자동으로 탈락한다 - 계정 전체가 한 번에
-# 바뀌는 조치는 사람이 매번 확인해야 하기 때문이다.
-AUTO_REQUIRED = {
-    "reversible": True,
-    "blast_radius": "resource",
-    "disruption": "none",
-}
 
 
 def policy_file(policy_name):
@@ -88,53 +73,49 @@ def load_meta(policy_name):
     }
 
 
-def compute_eligible(meta):
-    """auto 승격 자격을 조건으로 계산한다.
+# auto 승격이 안전하려면 정책 속성이 만족해야 하는 조건.
+#
+# **자격을 결정하는 건 사람이다.** mapping.yml 의 auto_eligible 이 판정 결과이고,
+# 여기는 그 판정에 이견이 있을 때 알려주는 역할만 한다. 기계적 조건만으로는
+# 잡을 수 없는 위험이 있기 때문이다 - 예를 들어 SSE-KMS 전환은 세 조건을 모두
+# 만족하지만 cross-account 접근 주체의 KMS 권한 영향은 코드가 확인할 수 없다.
+#
+# rollback_cli 는 조건에서 뺐다. 정책 작성 중에는 metadata.auto 블록이 없는
+# 경우가 많아 경고만 쌓인다. 실조치를 켤 때 다시 넣는다.
+AUTO_REQUIRED = {
+    "reversible": True,
+    "blast_radius": "resource",
+    "disruption": "none",
+}
 
-    반환: (자격 여부, 미달 사유)
+
+def check_auto_claim(policy_name, declared, meta):
+    """mapping.yml 의 auto_eligible 이 정책 속성과 맞는지 본다.
+
+    자동화하겠다고 선언했는데 되돌릴 수 없거나, 계정 전체에 영향을 주거나,
+    서비스가 중단되는 조치면 알린다. 정책을 손으로 쓰고 서로 리뷰하는 구조라
+    선언과 속성이 어긋나는 실수를 여기서 잡는다.
+
+    metadata.approve 가 아직 없는 정책은 건너뛴다. 작성 중인 정책에
+    경고를 쏟으면 진짜 문제가 묻힌다.
+
+    반환: 경고 메시지 / 이견 없으면 None
     """
-    approve = meta.get("approve") or {}
+    if not declared:
+        return None
+
+    approve = (meta or {}).get("approve") or {}
+    if not approve:
+        return None
+
     unmet = [
         f"{key}={approve.get(key)!r} (필요: {want!r})"
         for key, want in AUTO_REQUIRED.items()
         if approve.get(key) != want
     ]
-    if not (meta.get("auto") or {}).get("rollback_cli"):
-        unmet.append("rollback_cli 없음")
-
-    if unmet:
-        return False, " / ".join(unmet)
-    return True, None
-
-
-def resolve_eligible(policy_name, meta):
-    """파일에 적힌 auto.eligible 과 계산 결과를 맞춰본다.
-
-    사람이 적은 값을 그대로 믿지 않는다. 정책을 손으로 쓰고 서로 리뷰하는
-    구조라, 조건을 못 채운 정책에 eligible: true 가 붙는 실수를 여기서 잡는다.
-
-    - 적힌 값이 없으면 계산 결과를 쓴다
-    - false 로 적혀 있으면 그대로 둔다 (조건을 채워도 자동화하지 않겠다는 판단)
-    - true 인데 조건 미달이면 false 로 낮추고 경고한다
-
-    반환: (자격 여부, 사유)
-    """
-    computed, unmet = compute_eligible(meta)
-    auto = meta.get("auto") or {}
-    declared = auto.get("eligible")
-
-    if declared is None:
-        return computed, auto.get("reason") or unmet
-
-    if declared is False:
-        # 사람이 명시적으로 막은 것. 사유는 사람이 적은 걸 우선한다
-        return False, auto.get("reason") or unmet
-
-    if not computed:
-        print(f"[!] {policy_name}: auto.eligible=true 지만 조건 미달 - {unmet}")
-        return False, unmet
-
-    return True, None
+    if not unmet:
+        return None
+    return f"{policy_name}: auto_eligible=true 인데 {' / '.join(unmet)}"
 
 
 def check_prowler_link(policy_name, check_id):

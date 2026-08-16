@@ -15,7 +15,6 @@ import os
 from datetime import datetime
 
 from .config import LOG_DIR
-from .mapping import auto_status
 
 # finding 에서 그대로 옮기는 항목
 LOG_FIELDS = (
@@ -41,7 +40,16 @@ APPROVE_LOG_FIELDS = (
     "propagation_delay",
     "reversible",
     "cost_impact",
+)
+
+# mapping.yml 에서 옮겨 담을 항목.
+# 판정에 대한 서술이라 mode 와 같은 파일에 있다. mode 가 manual / not_supported 면
+# 정책 파일이 아예 없으므로 여기 말고는 둘 데가 없다
+MAPPING_LOG_FIELDS = (
+    "mode",
     "risk_note",
+    "auto_eligible",
+    "auto_reason",
 )
 
 
@@ -56,21 +64,14 @@ def build_log_records(findings):
     for finding in findings:
         record = {field: finding.get(field) for field in LOG_FIELDS}
 
-        record["mode"] = (finding.get("mapping") or {}).get("mode")
+        entry = finding.get("mapping") or {}
+        for field in MAPPING_LOG_FIELDS:
+            record[field] = entry.get(field)
 
         meta = finding.get("policy_meta") or {}
         approve = meta.get("approve") or {}
         for field in APPROVE_LOG_FIELDS:
             record[field] = approve.get(field)
-
-        policy_name = finding.get("policy_name")
-        if policy_name:
-            eligible, reason = auto_status(policy_name, meta)
-        else:
-            # 실행할 정책이 없으면 자동화 여부를 따질 대상이 아니다
-            eligible, reason = False, "실행할 정책 없음"
-        record["auto_eligible"] = eligible
-        record["auto_reason"] = reason
 
         record["executed_at"] = executed_at
         records.append(record)

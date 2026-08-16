@@ -1,134 +1,166 @@
+policies:
+  # ============================================================
 # S3 정책 모음
 #
-# 파일 하나에 서비스 하나. 정책이 늘어도 파일이 흩어지지 않는다.
-# 실행할 때는 이 파일을 그대로 넘기지 않고 정책 하나만 뽑아 쓴다.
+# Prowler check_id의 "_"를 "-"로 변경한 값을
+# Custodian policy name으로 사용한다.
 #
-# 정책 이름은 Prowler check_id 의 언더바를 하이픈으로 바꾼 것이다.
-#     s3_bucket_kms_encryption  ->  s3-bucket-kms-encryption
-# 이 규칙 덕분에 mapping.yml 에서 policy 를 생략해도 코드가 찾아낸다.
+# mapping.yml:
+#   s3_account_level_public_access_blocks
 #
-# metadata 두 블록의 역할
-#   approve   조치를 실행하면 무슨 일이 일어나는가. 승인 화면과 로그가 쓴다
-#   auto      승인 없이 돌려도 되는가. 돌린다면 어떤 안전장치가 필요한가
+# policy:
+#   s3-account-level-public-access-blocks
 #
-# auto.eligible 은 네 조건을 모두 만족할 때만 true 다.
-#     reversible: true / blast_radius: resource / disruption: none / rollback_cli 존재
-# 넷 다 이 파일 안에 있어서 리뷰어가 한 파일만 보고 검증할 수 있다.
-# 코드가 조건을 다시 계산해 대조하므로, 조건 미달인데 true 를 적으면 경고가 뜬다.
-#
-# 실행은 항상 --dryrun 이라 actions 가 있어도 실제 변경은 일어나지 않는다.
-
-policies:
-
-  - name: s3-bucket-secure-transport-policy
-    resource: aws.s3
-    description: HTTPS 를 강제하는 버킷 정책이 없는 버킷
-    metadata:
-      prowler_check: s3_bucket_secure_transport_policy
-      approve:
-        disruption: none
-        blast_radius: resource
-        propagation_delay: immediate
-        reversible: true
-        cost_impact: none
-        risk_note: HTTP 로만 접근하던 클라이언트가 있으면 차단된다
-      auto:
-        eligible: false
-        reason: |
-          기존 버킷 정책을 읽어 구문을 얹는 조치라 원복을 한 줄 명령으로 만들 수 없다.
-          되돌리려면 조치 전 정책 전문을 복원해야 하므로 스냅샷 기능이 먼저 필요하다.
-    filters:
-      - not:
-        - type: has-statement
-          statements:
-            - Effect: Deny
-              Action: "s3:*"
-              Condition:
-                Bool:
-                  "aws:SecureTransport": "false"
-    actions:
-      # remove:"*" 를 쓰지 않는다. 기존 구문을 전부 지우면 정당한 접근 허용까지
-      # 날아가므로 Deny 구문만 얹는다
-      - type: set-statements
-        statements:
-          - Sid: DenyInsecureTransport
-            Effect: Deny
-            Action: "s3:*"
-            Principal:
-              AWS: "*"
-            Resource:
-              - "arn:aws:s3:::{bucket_name}"
-              - "arn:aws:s3:::{bucket_name}/*"
-            Condition:
-              Bool:
-                "aws:SecureTransport": "false"
-
-  - name: s3-bucket-kms-encryption
-    resource: aws.s3
-    description: SSE-KMS 기본 암호화가 설정되지 않은 버킷
-    metadata:
-      prowler_check: s3_bucket_kms_encryption
-      approve:
-        disruption: none
-        blast_radius: resource
-        propagation_delay: immediate
-        reversible: true
-        cost_impact: low
-        risk_note: 신규 객체만 영향. 기존 객체는 그대로이며 KMS 요청 비용이 발생한다
-      auto:
-        eligible: true
-        warning: |
-          앞으로 이 계정의 미암호화 버킷은 승인 없이 SSE-KMS 로 전환된다.
-          KMS 요청마다 비용이 발생하므로 요청량이 많은 버킷은 예외로 두는 것이 좋다.
-        allowed_scopes:
-          - resource
-          - account
-        rollback_cli: >-
-          aws s3api put-bucket-encryption --bucket {resource_id}
-          --server-side-encryption-configuration
-          '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
-        cooldown: 24h
-        post_notification: log
-    # bucket-encryption 필터는 조건에 맞는 버킷을 남기므로 not 으로 감싼다.
-    # 암호화가 아예 없는 버킷과 AES256 으로만 암호화된 버킷이 모두 걸린다
-    filters:
-      - not:
-        - type: bucket-encryption
-          state: true
-          crypto: aws:kms
-    actions:
-      - type: set-bucket-encryption
-        crypto: aws:kms
-        enabled: true
+# 실행은 --dryrun을 기본으로 하므로 실제 변경은 수행하지 않는다.
+# ============================================================
 
   - name: s3-account-level-public-access-blocks
-    resource: aws.s3
-    description: 퍼블릭 액세스 차단 4개 항목이 모두 켜져 있지 않은 버킷
+    resource: aws.account
+
+    description: >
+      계정 수준 S3 Public Access Block 4개 항목이
+      모두 활성화되어 있지 않은 계정
+
     metadata:
       prowler_check: s3_account_level_public_access_blocks
+
       approve:
-        disruption: none
+        disruption: access
         blast_radius: account
-        propagation_delay: immediate
+        propagation_delay: minutes
         reversible: true
         cost_impact: none
-        risk_note: 정적 웹사이트 호스팅 버킷이 있으면 사이트가 내려간다
-      auto:
-        eligible: false
-        reason: |
-          계정 전체가 한 번에 바뀌는 조치라(blast_radius=account) 자동화 대상이 아니다.
-          영향받는 버킷을 사람이 매번 확인해야 한다.
-    # 알려진 결함 - 이 필터는 aws.s3(버킷 단위)인데 Prowler 의 해당 체크는 계정
-    # 단위 설정을 본다. 판정 단위가 어긋나 실제로 오답이 나온 적이 있다
-    # (계정 설정이 꺼져 있는데 버킷들이 각자 차단돼 있어 already_fixed 로 판정).
-    # resource: aws.account + 필터 s3-public-block + 액션 set-s3-public-block 으로
-    # 바꿔야 한다. custodian schema 로 파라미터를 확인한 뒤 수정할 것.
+        risk_note: >-
+          계정 전체의 S3 Public Access Block 설정을 변경하면 기존 공개 접근이 필요한 버킷이나 애플리케이션의 접근이 차단될 수 있으므로 승인 후 실행한다
+
     filters:
-      - type: check-public-block
+      - or:
+          - type: s3-public-block
+            key: BlockPublicAcls
+            op: ne
+            value: true
+
+          - type: s3-public-block
+            key: BlockPublicPolicy
+            op: ne
+            value: true
+
+          - type: s3-public-block
+            key: IgnorePublicAcls
+            op: ne
+            value: true
+
+          - type: s3-public-block
+            key: RestrictPublicBuckets
+            op: ne
+            value: true
+
     actions:
-      - type: set-public-block
+      - type: set-s3-public-block
         state: true
         BlockPublicAcls: true
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+
+  # ----------------------------------------------------------
+  # s3_bucket_kms_encryption
+  #
+  # SSE-KMS가 기본 암호화로 설정되지 않은 Bucket을 찾고
+  # SSE-KMS를 기본 암호화로 설정한다.
+  #
+  # 기존 애플리케이션의 KMS 권한이나 Cross-Account 접근에
+  # 영향을 줄 수 있으므로 mapping.yml에서는 approve.
+  # ----------------------------------------------------------
+
+  - name: s3-bucket-kms-encryption
+    resource: aws.s3
+
+    description: >
+      기본 암호화가 SSE-KMS로 설정되어 있지 않은 S3 Bucket
+
+    metadata:
+      prowler_check: s3_bucket_kms_encryption
+
+      approve:
+        disruption: access
+        blast_radius: resource
+        propagation_delay: minutes
+        reversible: true
+        cost_impact: low
+        risk_note: >-
+          SSE-KMS 기본 암호화 적용 후 새로 저장되는 객체는 KMS 권한이 필요할 수 있으며, cross-account 접근 및 KMS 요청 비용에 영향을 줄 수 있으므로 승인 후 실행한다
+
+    filters:
+      - not:
+          - type: bucket-encryption
+            state: true
+            crypto: aws:kms
+
+    actions:
+      - type: set-bucket-encryption
+        crypto: aws:kms
+        key: alias/aws/s3
+        bucket-key: true
+
+
+  # ----------------------------------------------------------
+  # s3_bucket_secure_transport_policy
+  #
+  # HTTP 요청을 명시적으로 차단하는 Bucket Policy가
+  # 없는 Bucket을 찾는다.
+  #
+  # aws:SecureTransport=false 요청을 Deny하여
+  # HTTPS 사용을 강제한다.
+  #
+  # 기존 HTTP 접근이 중단될 수 있으므로
+  # mapping.yml에서는 approve.
+  # ----------------------------------------------------------
+
+  - name: s3-bucket-secure-transport-policy
+    resource: aws.s3
+
+    description: >
+      HTTP 요청을 명시적으로 차단하는
+      SecureTransport Bucket Policy가 없는 S3 Bucket
+
+    metadata:
+      prowler_check: s3_bucket_secure_transport_policy
+
+      approve:
+        disruption: traffic
+        blast_radius: resource
+        propagation_delay: minutes
+        reversible: true
+        cost_impact: none
+        risk_note: >-
+          HTTPS를 강제하는 Bucket Policy를 추가하면 기존 HTTP 기반 S3 접근이 차단될 수 있으므로 승인 후 실행한다
+
+    filters:
+      - not:
+          - type: has-statement
+            statements:
+              - Effect: Deny
+                Principal: "*"
+                Action: "s3:*"
+                Resource: "arn:aws:s3:::{bucket_name}/*"
+                Condition:
+                  Bool:
+                    "aws:SecureTransport": "false"
+                PartialMatch:
+                  - Action
+                  - Resource
+
+    actions:
+      - type: set-statements
+        statements:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - "arn:aws:s3:::{bucket_name}"
+              - "arn:aws:s3:::{bucket_name}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": false

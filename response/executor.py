@@ -192,39 +192,52 @@ def execute_policies(findings_by_policy):
 
     for policy_name, findings in findings_by_policy.items():
         print(f"  - {policy_name} (finding {len(findings)}건)")
-
-        # 실행 전에 범위부터 좁힌다
-        policy_path, scope_note = build_scoped_policy(policy_name, findings)
-        if policy_path is None:
-            print(f"      실패: {scope_note}")
-            _mark_all(findings, "failed", scope_note)
+        resources = dryrun_and_verify(policy_name, findings)
+        if resources is None:
             continue
-        print(f"      {scope_note}")
-
-        ok, error = run_custodian(policy_path)
-        if not ok:
-            print(f"      실패: {error}")
-            _mark_all(findings, "failed", error)
-            continue
-
-        resources, error = load_dryrun_resources(policy_name)
-        if error:
-            print(f"      실패: {error}")
-            _mark_all(findings, "failed", error)
-            continue
-
-        matched = len({a for a in (extract_arn(r) for r in resources) if a})
-        print(f"      dryrun 대상 리소스 {len(resources)}건 / ARN 확보 {matched}건")
-
-        # Custodian 이 실제로 조회한 계정. finding 의 계정과 다르면 대조가 무의미하다
-        scanned_account = load_dryrun_account_id(policy_name)
-        if scanned_account is None:
-            print("      경고: 조회 계정을 확인하지 못해 계정 대조를 건너뜁니다")
-        else:
-            print(f"      조회 계정 {scanned_account}")
-
-        verify_findings(findings, resources, scanned_account)
         request_approval(policy_name, findings, resources)
+
+
+def dryrun_and_verify(policy_name, findings):
+    """범위 제한 -> dryrun -> 대조. 판정 결과를 findings 에 채운다.
+
+    승인 전(execute_policies)과 조치 직전(remediation) 양쪽에서 쓴다.
+    **조치 직전에 한 번 더 도는 것이 중요하다.** 승인은 과거 시점의 판단이고
+    조치는 지금 나가므로, 그 사이에 이미 해소됐을 수 있다.
+
+    반환: dryrun 결과 리소스 리스트 / 실패하면 None (findings 는 failed 로 확정)
+    """
+    policy_path, scope_note = build_scoped_policy(policy_name, findings)
+    if policy_path is None:
+        print(f"      실패: {scope_note}")
+        _mark_all(findings, "failed", scope_note)
+        return None
+    print(f"      {scope_note}")
+
+    ok, error = run_custodian(policy_path)
+    if not ok:
+        print(f"      실패: {error}")
+        _mark_all(findings, "failed", error)
+        return None
+
+    resources, error = load_dryrun_resources(policy_name)
+    if error:
+        print(f"      실패: {error}")
+        _mark_all(findings, "failed", error)
+        return None
+
+    matched = len({a for a in (extract_arn(r) for r in resources) if a})
+    print(f"      dryrun 대상 리소스 {len(resources)}건 / ARN 확보 {matched}건")
+
+    # Custodian 이 실제로 조회한 계정. finding 의 계정과 다르면 대조가 무의미하다
+    scanned_account = load_dryrun_account_id(policy_name)
+    if scanned_account is None:
+        print("      경고: 조회 계정을 확인하지 못해 계정 대조를 건너뜁니다")
+    else:
+        print(f"      조회 계정 {scanned_account}")
+
+    verify_findings(findings, resources, scanned_account)
+    return resources
 
 
 def untargeted_arns(findings, resources):

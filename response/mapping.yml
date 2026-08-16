@@ -1,50 +1,422 @@
-# Prowler 의 metadata.event_code 를 Cloud Custodian 정책에 연결한다.
+# Prowler 의 metadata.event_code 를 Cloud Custodian 정책 이름에 연결한다.
 # Custodian 은 findings 를 입력으로 받지 않고 AWS 를 직접 조회하므로,
 # 두 도구의 유일한 연결점이 이 매핑이다.
 #
-# 이 파일은 **라우팅 테이블**이다. "이 체크를 어디로 보낼까"만 정한다.
-# 조치가 어떤 성질인지(중단 여부·영향 범위·되돌릴 수 있는지)는 정책과 한 몸이라
-# policies/<서비스>.yml 의 metadata 에 적는다. 정책을 리뷰하는 사람이 한 파일만
-# 보고 판단할 수 있어야 하기 때문이다.
+# ── 스키마 (flat 7필드) ────────────────────────────────────────
 #
-# 필드
-#   policy      Custodian 정책 이름. 생략하면 check_id 의 언더바를 하이픈으로
-#               바꾼 이름을 쓴다 (s3_bucket_kms_encryption -> s3-bucket-kms-encryption).
-#               이름이 규칙과 다르면 명시하고, 실행할 정책이 없으면 null 을 적는다.
-#   mode        approve / manual / not_supported
-#               - approve       : 실행 후 사람에게 건별로 확인받는다
-#               - manual        : Custodian 으로 조치할 수 없어 사람이 직접 한다.
-#                                 도구는 안내만 한다
-#               - not_supported : 조치 도구 자체가 없다
-#   scope_key   실행 범위를 좁힐 때 쓸 Custodian 리소스 필드
-#               (S3 는 Name, EC2 는 InstanceId). ARN 의 마지막 조각과 대조한다.
-#               계정 단위 체크는 null 로 둔다
-#   guide       mode=manual 일 때 사람이 무엇을 해야 하는지.
-#               비워두면 Prowler 의 remediation.desc 를 그대로 쓴다.
-#               우리 환경 특수사항이 있을 때만 적는다
+# policy         Custodian 정책 이름 (policies/*.yml 의 name 과 매칭)
+#                mode 가 manual / not_supported 면 null
 #
-# **auto 는 여기서 정하지 않는다.** 조치 가능한 체크는 전부 approve 로 시작하고,
-# 사용자가 대시보드에서 "앞으로 자동 실행" 을 켜면 그때부터 auto 로 돈다.
-# 자동화 자격은 policies/*.yml 의 metadata.auto 가 정한다.
+# mode           approve / manual / not_supported (필수, default 없음)
+#                - approve       : Custodian dryrun 실행 후 사용자 승인
+#                - manual        : Custodian 표준화 불가, guide 로 사람이 직접
+#                - not_supported : Custodian 이 리소스/필터/액션을 지원 안 함
+#                (auto 는 판정 결과가 아님. approve 를 운영하며 사용자가 명시적으로 승격시킨 것 (Plus Alpha).)
+#
+# auto_eligible  auto 로 승격 가능한지 여부 (mode=approve 일 때만 필수)
+#                true  : 사용자 opt-in 시 자동 실행 허용
+#                false : 매 finding 마다 사용자 승인 필요
+#
+# auto_reason    auto 승격 부적합 사유 (auto_eligible=false 일 때만)
+#                감사 대응 + 사용자 알림에 노출됨
+#
+# scope_key      Custodian 실행 시 리소스를 특정할 필드명
+#                (S3 = Name, EC2 = InstanceId, IAM = UserName, CloudTrail = TrailARN 등)
+#                Finding 의 리소스 식별 정보에서 scope_key 에 해당하는 값을 사용해 실행 범위를 좁힌다.
+#                계정 단위 조치면 null.
+#
+# risk_note      이 mode 로 판정한 근거 (필수). 감사·로그에 함께 남는다.
+#
+# guide          mode=manual 일 때만. 사용자가 직접 수행할 조치 안내
+#
+# ── 판정 트리 (4단계 + auto_eligible) ──────────────────────────
+#
+# ① Custodian 으로 구현 가능한가?
+#    NO  → not_supported
+#    YES → ②
+#
+# ② 조치 대상과 방법을 확정할 수 있는가?
+#    NO  → manual
+#    YES → ③
+#
+# ③ 파괴적이거나 사람 판단이 필요한 조치인가?
+#    YES → manual
+#    NO  → ④
+#
+# ④ 그 외 → approve
+#             ↓
+#            ⑤ (approve 만) 사용자 opt-in 후 자동 실행돼도 안전한가?
+#               모두 YES → auto_eligible: true
+#               하나라도 NO → auto_eligible: false + auto_reason 명시
+#
+# ── 다른 파일과의 관계 ────────────────────────────────────────
+#
+# 액션 속성 (disruption / blast_radius / reversible 등) 은 여기 없다.
+# → policies/*.yml 의 metadata.approve 로 이사했다.
+#
+# 실제 사용자 opt-in 상태 (누가 언제 승격했는지) 도 여기 없다.
+# → DB 의 auto_opt_in 테이블에 저장된다.
 
-s3_bucket_secure_transport_policy:
-  mode: approve
-  scope_key: Name
 
-s3_bucket_kms_encryption:
-  mode: approve
-  scope_key: Name
+# ============================================================
+# S3
+# ============================================================
+
+
+# ------------------------------------------------------------
+# s3_account_level_public_access_blocks
+#
+# Severity: High
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: blast_radius=account → auto_eligible: false
+# ------------------------------------------------------------
 
 s3_account_level_public_access_blocks:
+  policy: s3-account-level-public-access-blocks
   mode: approve
-  scope_key: null       # 계정 단위 체크 - 리소스로 좁힐 수 없다
+  auto_eligible: false
+  auto_reason: "계정 전체 S3 접근에 영향, 기존 공개 접근 필요 여부 자동 검증 불가"
+  scope_key: null
+  risk_note: "계정 전체의 S3 Public Access Block 설정을 변경하면 기존 공개 접근이 필요한 버킷이나 애플리케이션의 접근이 차단될 수 있으므로 승인 후 실행한다"
 
-s3_bucket_no_mfa_delete:
-  policy: null          # 조치 도구가 없다
-  mode: not_supported
 
-# 조치 도구는 있지만 Custodian 으로 안전하게 다룰 수 없어 사람이 처리하는 예시.
-# policy 가 null 이라 실행되지 않고 안내 대상으로만 기록된다.
-rds_instance_encryption:
-  policy: null
-  mode: manual
+# ------------------------------------------------------------
+# s3_bucket_kms_encryption
+#
+# Severity: Medium
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: cross-account KMS 권한 영향 자동 확인 불가 → auto_eligible: false
+# ------------------------------------------------------------
+
+s3_bucket_kms_encryption:
+  policy: s3-bucket-kms-encryption
+  mode: approve
+  auto_eligible: false
+  auto_reason: "cross-account 접근 주체의 KMS 권한 영향 자동 검증 불가"
+  scope_key: Name
+  risk_note: "SSE-KMS 기본 암호화 적용 후 새로 저장되는 객체는 KMS 권한이 필요할 수 있으며, cross-account 접근 및 KMS 요청 비용에 영향을 줄 수 있으므로 승인 후 실행한다"
+
+
+# ------------------------------------------------------------
+# s3_bucket_secure_transport_policy
+#
+# Severity: Medium
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: HTTP 의존 앱 자동 확인 불가 → auto_eligible: false
+# ------------------------------------------------------------
+
+s3_bucket_secure_transport_policy:
+  policy: s3-bucket-secure-transport-policy
+  mode: approve
+  auto_eligible: false
+  auto_reason: "기존 HTTP 기반 S3 접근 클라이언트 사전 확인 불가"
+  scope_key: Name
+  risk_note: "HTTPS를 강제하는 Bucket Policy를 추가하면 기존 HTTP 기반 S3 접근이 차단될 수 있으므로 승인 후 실행한다"
+
+
+# ============================================================
+# EC2
+# ============================================================
+
+
+# ------------------------------------------------------------
+# ec2_ebs_default_encryption
+#
+# Severity: High
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: 계정/리전 단위 설정이지만 기존 볼륨에는 영향을 주지 않음
+#      → 영향 범위 고지 및 명시적 opt-in 조건으로 auto_eligible: true
+# ------------------------------------------------------------
+
+ec2_ebs_default_encryption:
+  policy: ec2-ebs-default-encryption
+  mode: approve
+  auto_eligible: true
+  scope_key: null
+  risk_note: "계정/리전 EBS 기본 암호화 설정 변경 - 조직이 전체 암호화 정책일 때만 승격 권장"
+
+
+# ------------------------------------------------------------
+# ec2_ebs_volume_snapshots_exists
+#
+# Severity: High
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: 신규 스냅샷 생성(원본 무변경) + 볼륨 단위 + reversible
+#      → auto_eligible: true
+# ------------------------------------------------------------
+
+ec2_ebs_volume_snapshots_exists:
+  policy: ec2-ebs-volume-snapshots-exists
+  mode: approve
+  auto_eligible: true
+  scope_key: VolumeId
+  risk_note: "EBS Snapshot 생성은 가능하지만 Snapshot 저장에 추가 비용이 발생하므로 승인 후 실행한다"
+
+
+# ------------------------------------------------------------
+# ec2_instance_account_imdsv2_enabled
+#
+# Severity: High
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: 계정/리전 단위 IMDS 기본값 변경
+#      → 기존 인스턴스에는 소급 적용되지 않으므로
+#        영향 고지 및 명시적 opt-in 조건으로 auto_eligible: true
+# ------------------------------------------------------------
+
+ec2_instance_account_imdsv2_enabled:
+  policy: ec2-instance-account-imdsv2-enabled
+  mode: approve
+  auto_eligible: true
+  scope_key: null
+  risk_note: "계정 IMDS 기본값 변경 - 조직이 IMDSv2 강제 정책일 때만 승격 권장"
+
+# ------------------------------------------------------------
+# ec2_instance_imdsv2_enabled
+#
+# Severity: High
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: IMDSv1 의존 앱 자동 확인 불가 → auto_eligible: false
+# ------------------------------------------------------------
+
+ec2_instance_imdsv2_enabled:
+  policy: ec2-instance-imdsv2-enabled
+  mode: approve
+  auto_eligible: false
+  auto_reason: "인스턴스 내 IMDSv1 의존 애플리케이션·SDK 자동 검증 불가"
+  scope_key: InstanceId
+  risk_note: "기존 애플리케이션이나 SDK가 IMDSv1에 의존하는지 자동으로 확인할 수 없어 호환성 영향을 배제할 수 없으므로 승인 후 실행한다"
+
+
+# ------------------------------------------------------------
+# ec2_instance_detailed_monitoring_enabled
+#
+# Severity: Low
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: 인스턴스 단위 + 서비스 무중단 + reversible
+#      → auto_eligible: true
+# ------------------------------------------------------------
+
+ec2_instance_detailed_monitoring_enabled:
+  policy: ec2-instance-detailed-monitoring-enabled
+  mode: approve
+  auto_eligible: true
+  scope_key: InstanceId
+  risk_note: "EC2 Detailed Monitoring 활성화는 서비스 중단 없이 가능하지만 CloudWatch Metric에 따른 추가 비용이 발생하므로 승인 후 실행한다"
+
+
+# ------------------------------------------------------------
+# ec2_securitygroup_allow_ingress_from_internet_to_any_port_from_ip
+#
+# Severity: Medium
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: 제거 대상 rule의 정상 사용 여부 자동 확인 불가 → auto_eligible: false
+# ------------------------------------------------------------
+
+ec2_securitygroup_allow_ingress_from_internet_to_any_port_from_ip:
+  policy: ec2-securitygroup-allow-ingress-from-internet-to-any-port-from-ip
+  mode: approve
+  auto_eligible: false
+  auto_reason: "제거 대상 ingress rule의 관리자·외부 서비스 정상 사용 여부 자동 확인 불가"
+  scope_key: GroupId
+  risk_note: "Public IP 기반 ingress rule을 제거하면 정상적인 관리자 또는 외부 서비스의 접근까지 차단될 수 있으므로 승인 후 실행한다"
+
+
+# ============================================================
+# IAM
+# ============================================================
+
+
+# ------------------------------------------------------------
+# iam_role_administratoraccess_policy
+#
+# Severity: High
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: Role 사용 서비스의 권한 필요성 자동 확인 불가 → auto_eligible: false
+# ------------------------------------------------------------
+
+iam_role_administratoraccess_policy:
+  policy: iam-role-administratoraccess-policy
+  mode: approve
+  auto_eligible: false
+  auto_reason: "Role을 사용하는 서비스의 실제 필요 권한 자동 검증 불가"
+  scope_key: RoleName
+  risk_note: "IAM Role에서 AdministratorAccess를 제거하면 해당 Role을 사용하는 서비스의 기존 AWS 작업 권한이 제한되어 애플리케이션 동작에 영향을 줄 수 있으므로 승인 후 실행한다"
+
+
+# ------------------------------------------------------------
+# iam_user_administrator_access_policy
+#
+# Severity: Critical
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: User가 수행 중인 관리 작업 자동 확인 불가 → auto_eligible: false
+# ------------------------------------------------------------
+
+iam_user_administrator_access_policy:
+  policy: iam-user-administrator-access-policy
+  mode: approve
+  auto_eligible: false
+  auto_reason: "User가 수행 중인 관리 작업 및 실제 필요 권한 자동 검증 불가"
+  scope_key: UserName
+  risk_note: "IAM User에서 AdministratorAccess를 제거하면 해당 사용자가 수행하던 기존 AWS 관리 작업이 제한될 수 있으므로 승인 후 실행한다"
+
+
+# ------------------------------------------------------------
+# iam_password_policy_expires_passwords_within_90_days_or_less
+#
+# Severity: Medium
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: 기존 사용자에게 강제 비밀번호 변경 발생, 로그인 영향
+#      → auto_eligible: false
+# ------------------------------------------------------------
+
+iam_password_policy_expires_passwords_within_90_days_or_less:
+  policy: iam-password-policy-expires-passwords-within-90-days-or-less
+  mode: approve
+  auto_eligible: false
+  auto_reason: "만료 정책 적용 시 기존 사용자에게 강제 비밀번호 변경 발생, 로그인 영향"
+  scope_key: null
+  risk_note: "Password 만료 정책을 90일로 설정하면 오래된 비밀번호를 사용하는 IAM User에게 비밀번호 변경이 요구될 수 있어 사용자 접근에 영향을 줄 수 있으므로 승인 후 실행한다"
+
+
+# ------------------------------------------------------------
+# iam_password_policy_lowercase
+#
+# Severity: Low
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: 계정 단위 조치, 조직 IAM 보안 baseline 정책에 따라 승격 가능
+#      → auto_eligible: true (조건부)
+# ------------------------------------------------------------
+
+iam_password_policy_lowercase:
+  policy: iam-password-policy-lowercase
+  mode: approve
+  auto_eligible: true
+  scope_key: null
+  risk_note: "IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장"
+
+
+# ------------------------------------------------------------
+# iam_password_policy_minimum_length_14
+#
+# Severity: Medium
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: 계정 단위 조치, 조직 IAM 보안 baseline 정책에 따라 승격 가능
+#      → auto_eligible: true (조건부)
+# ------------------------------------------------------------
+
+iam_password_policy_minimum_length_14:
+  policy: iam-password-policy-minimum-length-14
+  mode: approve
+  auto_eligible: true
+  scope_key: null
+  risk_note: "IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장"
+
+
+# ------------------------------------------------------------
+# iam_password_policy_number
+#
+# Severity: Medium
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: 계정 단위 조치, 조직 IAM 보안 baseline 정책에 따라 승격 가능
+#      → auto_eligible: true (조건부)
+# ------------------------------------------------------------
+
+iam_password_policy_number:
+  policy: iam-password-policy-number
+  mode: approve
+  auto_eligible: true
+  scope_key: null
+  risk_note: "IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장"
+
+
+# ------------------------------------------------------------
+# iam_password_policy_reuse_24
+#
+# Severity: Medium
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: 계정 단위 조치, 조직 IAM 보안 baseline 정책에 따라 승격 가능
+#      → auto_eligible: true (조건부)
+# ------------------------------------------------------------
+
+iam_password_policy_reuse_24:
+  policy: iam-password-policy-reuse-24
+  mode: approve
+  auto_eligible: true
+  scope_key: null
+  risk_note: "IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장"
+
+
+# ------------------------------------------------------------
+# iam_password_policy_symbol
+#
+# Severity: Medium
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: 계정 단위 조치, 조직 IAM 보안 baseline 정책에 따라 승격 가능
+#      → auto_eligible: true (조건부)
+# ------------------------------------------------------------
+
+iam_password_policy_symbol:
+  policy: iam-password-policy-symbol
+  mode: approve
+  auto_eligible: true
+  scope_key: null
+  risk_note: "IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장"
+
+
+# ------------------------------------------------------------
+# iam_password_policy_uppercase
+#
+# Severity: Medium
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: 계정 단위 조치, 조직 IAM 보안 baseline 정책에 따라 승격 가능
+#      → auto_eligible: true (조건부)
+# ------------------------------------------------------------
+
+iam_password_policy_uppercase:
+  policy: iam-password-policy-uppercase
+  mode: approve
+  auto_eligible: true
+  scope_key: null
+  risk_note: "IAM 계정 전체 Password Policy 변경 - 조직이 IAM 보안 baseline 정책을 운영할 때만 승격 권장"
+
+
+
+# ============================================================
+# CloudTrail
+# ============================================================
+
+# ------------------------------------------------------------
+# cloudtrail_log_file_validation_enabled
+#
+# Severity: Medium
+#
+# 판정: ①YES → ②YES → ③NO → ④ approve
+# 승격: Trail 단위 + 로깅 중단 없음 + 조치값 고정
+#      단, Digest File 추가 저장에 따른 S3 저장량 증가 가능
+#      → auto_eligible: true
+# ------------------------------------------------------------
+
+cloudtrail_log_file_validation_enabled:
+  policy: cloudtrail-log-file-validation-enabled
+  mode: approve
+  auto_eligible: true
+  scope_key: TrailARN
+  risk_note: "Log File Validation 활성화 시 Digest File이 기존 CloudTrail S3 Bucket에 추가 저장되어 S3 저장량이 증가할 수 있으므로 최초 실행 시 영향을 고지하고 승인 후 실행한다"
