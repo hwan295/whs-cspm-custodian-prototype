@@ -34,11 +34,14 @@ LOG_FIELDS = (
 # 정책의 metadata.approve 에서 옮겨 담을 항목.
 # 조치의 "위험도"를 리포팅 파트에 그대로 넘긴다. 어느 것을 먼저 처리할지,
 # 승인 화면에 무엇을 보여줄지는 그쪽에서 판단해야 하기 때문이다.
-# propagation_delay 는 지금은 기록만 한다 - 조치 후 재확인 기능이 붙을 때 쓴다
+#
+# propagation_delay 는 뺐다. 어떤 로직도 읽지 않아 로그만 채우고 있었다.
+# 조치 후 재확인은 지연과 무관하게 즉시 돈다 - 기다리려면 minutes 단위로
+# 프로세스를 붙잡아야 해서 비동기 재확인이 붙기 전에는 쓸 수 없다.
+# 정책 파일에는 그대로 두었다. 그때 다시 쓰면 된다
 APPROVE_LOG_FIELDS = (
     "disruption",
     "blast_radius",
-    "propagation_delay",
     "reversible",
     "cost_impact",
 )

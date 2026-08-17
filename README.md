@@ -260,7 +260,7 @@ policies:
       approve:                      # 조치를 실행하면 무슨 일이 일어나는가
         disruption: access          # none / access / traffic / recreate / destructive
         blast_radius: resource      # resource / account / region / multi-account
-        propagation_delay: minutes
+        propagation_delay: minutes   # 정책에만 있고 코드는 읽지 않는다
         reversible: true
         cost_impact: low            # none / low / medium / high
       auto:                         # auto_eligible=true 일 때만
@@ -517,7 +517,7 @@ custodian run -s out out/_scoped/s3-bucket-kms-encryption.yml --dryrun
 ```
 finding          check_id · resource_uid · account_uid · severity · status · reason
 mapping.yml      mode · risk_note · auto_eligible · auto_reason
-policies/*.yml   disruption · blast_radius · propagation_delay · reversible · cost_impact
+policies/*.yml   disruption · blast_radius · reversible · cost_impact
 runbook.yml      runbook (method · command_template · console_steps · docs_url)
 ```
 

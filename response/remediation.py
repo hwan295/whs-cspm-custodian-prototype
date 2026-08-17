@@ -144,9 +144,9 @@ def _confirm(policy_name, findings):
     안 걸리면 해소된 것이다. 값 비교(before/after)는 못 하지만 해소 여부는
     이걸로 충분하다.
 
-    반영에 시간이 걸리는 조치(propagation_delay)는 아직 기다리지 않는다.
-    그런 건 여기서 still_failing 으로 나올 수 있고, 재확인 기능이 붙을 때
-    대기 시간을 넣는다.
+    **반영을 기다리지 않는다.** 정책에 propagation_delay 가 있지만 minutes 단위를
+    기다리려면 프로세스를 붙잡아야 해서 쓸 수 없다. 그래서 반영이 느린 조치는
+    여기서 still_failing 으로 나올 수 있다 - 비동기 재확인이 붙을 때 해결한다.
     """
     resources = dryrun_and_verify(policy_name, findings)
     if resources is None:
