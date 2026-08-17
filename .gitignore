@@ -15,20 +15,11 @@ __pycache__/
 # macOS
 .DS_Store
 
-# 개인 작업 문서 (공유 대상 아님)
-PLAN.md
-HYBRID-PLAN.md
-DECISIONS.md
-DATA-REQUIREMENTS.md
-MENTORING.md
-architecture.svg
-architecture.png
-in-out-architecture.drawio
-remediation_inout.drawio
-
 # 조치 대상 범위 - 실제 계정 ID 가 들어간다
 response/scope.yml
-progress.csv
 
 # 랩 검증 증거 - 계정 ID·ARN 포함
 evidence/
+
+# 프로젝트 정리 문서 - 계획·결정 기록·검증 기록·다이어그램 (공유 대상 아님)
+workflow/

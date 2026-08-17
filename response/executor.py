@@ -19,7 +19,7 @@ from .findings import dig
 from .mapping import build_reason
 from .optin import describe_source, is_opted_in
 from .policy_meta import is_account_scoped
-from .scoping import build_scoped_policy, extract_resource_name
+from .scoping import build_scoped_policy, extract_scope_value
 
 
 def run_custodian(policy_path, dry_run=True):
@@ -196,9 +196,9 @@ def verify_findings(findings, resources, scanned_account):
             continue
 
         resource_uid = finding.get("resource_uid")
-        # finding 은 ARN 을 주므로 마지막 조각도 함께 본다
-        # (arn:aws:ec2:…:instance/i-0abc -> i-0abc 가 InstanceId 와 맞는다)
-        name = extract_resource_name(resource_uid)
+        # 범위를 좁힐 때와 같은 규칙으로 식별자를 뽑는다.
+        # InstanceId 면 i-0abc, TrailARN 이면 ARN 전체
+        name = extract_scope_value(resource_uid, scope_key)
         if not resource_uid:
             finding["status"] = "arn_not_found"
             finding["reason"] = "finding 에 resource_uid 가 없어 대조 불가"

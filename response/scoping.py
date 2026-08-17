@@ -30,6 +30,25 @@ def extract_resource_name(arn):
     return tail or None
 
 
+def extract_scope_value(resource_uid, scope_key):
+    """scope_key 가 요구하는 형태로 식별자를 뽑는다.
+
+    **필드마다 요구하는 값이 다르다.** InstanceId 는 i-0abc 를 원하지만
+    TrailARN 은 ARN 전체를 원한다. 무조건 마지막 조각을 넣으면
+    `key: TrailARN, value: [trail-이름]` 처럼 절대 맞지 않는 필터가 만들어진다.
+    실제로 CloudTrail 정책이 이 때문에 0건을 반환해 "이미 해소됨" 으로
+    오판한 적이 있다.
+
+    이름이 arn 으로 끝나는 필드는 ARN 을 그대로 쓴다
+    (TrailARN · SubnetArn · BucketArn 등).
+    """
+    if not resource_uid:
+        return None
+    if scope_key and scope_key.lower().endswith("arn"):
+        return resource_uid
+    return extract_resource_name(resource_uid)
+
+
 def build_scoped_policy(policy_name, findings):
     """findings 의 리소스만 대상으로 하는 임시 정책 파일을 만든다.
 
@@ -47,7 +66,9 @@ def build_scoped_policy(policy_name, findings):
     approve = (head.get("policy_meta") or {}).get("approve") or {}
 
     names = sorted({
-        n for n in (extract_resource_name(f.get("resource_uid")) for f in findings) if n
+        value for value in (
+            extract_scope_value(f.get("resource_uid"), scope_key) for f in findings
+        ) if value
     })
 
     # 계정·리전 단위 체크는 설정 하나를 보는 것이라 리소스 필터를 얹으면 판정이 어긋난다
