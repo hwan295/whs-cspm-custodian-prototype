@@ -147,12 +147,10 @@ policies:
     filters:
       - or:
           - type: ingress
-            IpProtocol: "-1"
             Cidr:
               op: regex
               value: ^(?!0\.0\.0\.0/0$).+
           - type: ingress
-            IpProtocol: "-1"
             CidrV6:
               op: regex
               value: ^(?!::/0$).+

@@ -116,8 +116,8 @@ def extract_arn(resource):
     return None
 
 
-def resource_identifiers(resources, scope_key):
-    """대조에 쓸 식별자를 모은다.
+def resource_index(resources, scope_key):
+    """식별자 -> 리소스 dict 색인을 만든다.
 
     **ARN 만으로는 부족하다.** Custodian 리소스에 ARN 필드가 있는 건 S3 정도이고,
     EC2·EBS·서브넷은 InstanceId·VolumeId·SubnetId 같은 식별자만 들고 온다.
@@ -125,17 +125,22 @@ def resource_identifiers(resources, scope_key):
 
     그래서 **범위를 좁힐 때 쓴 필드(scope_key)로 대조도 한다.** 좁히는 기준과
     맞추는 기준이 같아야 앞뒤가 맞는다.
+
+    dict 로 돌려주는 이유 - 어느 리소스와 맞았는지 알아야 조치 전 상태를
+    남길 수 있다(finding["before"]).
     """
-    found = set()
+    index = {}
     for resource in resources:
+        if not isinstance(resource, dict):
+            continue
         arn = extract_arn(resource)
         if arn:
-            found.add(arn)
-        if scope_key and isinstance(resource, dict):
+            index[arn] = resource
+        if scope_key:
             value = resource.get(scope_key)
             if value:
-                found.add(value)
-    return found
+                index[value] = resource
+    return index
 
 
 def _mark_all(findings, status, reason):
@@ -155,9 +160,9 @@ def verify_findings(findings, resources, scanned_account):
       4. ARN 일치 여부      -> still_open / already_fixed
     """
     scope_key = (findings[0].get("mapping") or {}).get("scope_key") if findings else None
-    matched = resource_identifiers(resources, scope_key)
+    index = resource_index(resources, scope_key)
     # 리소스는 있는데 식별자를 하나도 못 뽑으면 finding 과 대조할 방법이 없다
-    id_missing = bool(resources) and not matched
+    id_missing = bool(resources) and not index
 
     for finding in findings:
         finding_account = finding.get("account_uid")
@@ -182,6 +187,8 @@ def verify_findings(findings, resources, scanned_account):
             if resources:
                 finding["status"] = "still_open"
                 finding["reason"] = f"{unit} 단위 판정 - 대상 리소스 {len(resources)}건"
+                # 계정 단위 체크는 리소스가 계정 설정 하나다
+                finding["before"] = resources[0] if len(resources) == 1 else None
             else:
                 finding["status"] = "already_fixed"
                 finding["reason"] = f"{unit} 단위 판정 - 대상 리소스 없음"
@@ -202,9 +209,12 @@ def verify_findings(findings, resources, scanned_account):
         if not resource_uid:
             finding["status"] = "arn_not_found"
             finding["reason"] = "finding 에 resource_uid 가 없어 대조 불가"
-        elif resource_uid in matched or (name and name in matched):
+        elif resource_uid in index or (name and name in index):
             finding["status"] = "still_open"
             finding["reason"] = None
+            # 조치 직전 상태. 감사 증빙이자 롤백 근거가 된다.
+            # dryrun 결과가 곧 "고치기 전" 이므로 따로 조회할 필요가 없다
+            finding["before"] = index.get(resource_uid) or index.get(name)
         else:
             finding["status"] = "already_fixed"
             finding["reason"] = "dryrun 결과에 해당 리소스가 없음"

@@ -78,6 +78,10 @@ def build_log_records(findings):
         # 나눠 그리려면 구조가 필요하다
         record["runbook"] = as_record(find_runbook(entry.get("runbook")))
 
+        # 조치 직전 상태. dryrun 결과가 곧 "고치기 전" 이라 따로 조회하지 않는다.
+        # 조치 대상인 건에만 담긴다 - 실행조차 안 한 건은 남길 상태가 없다
+        record["before"] = finding.get("before")
+
         record["executed_at"] = executed_at
         records.append(record)
     return records

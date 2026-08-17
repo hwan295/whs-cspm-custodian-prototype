@@ -2,18 +2,20 @@
   - name: cloudtrail-log-file-validation-enabled
     resource: aws.cloudtrail
     description: Log File Validation이 비활성화된 CloudTrail Trail을 탐지하고, update-trail로 Log File Validation을 활성화한다.
+
     filters:
-      - type: is-shadow
-        state: false
       - type: value
         key: LogFileValidationEnabled
         value: false
+
     actions:
       - type: update-trail
         attributes:
           EnableLogFileValidation: true
+
     metadata:
       prowler_check: cloudtrail_log_file_validation_enabled
+
       approve:
         disruption: none
         blast_radius: resource
@@ -21,6 +23,7 @@
         reversible: true
         cost_impact: low
         risk_note: Log File Validation 활성화 시 Digest File이 기존 CloudTrail S3 Bucket에 추가 저장되어 S3 저장량이 증가할 수 있으므로 최초 실행 시 영향을 고지하고 승인 후 실행한다
+
       auto:
         warning: >
           Auto 활성화 시 opt-in한 CloudTrail Trail에서 동일 위반이 다시 탐지되면

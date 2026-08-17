@@ -23,11 +23,12 @@ CLI 는 그 자리에서 물어보지만, 웹은 실행이 끝난 뒤 사람이 
 
 from datetime import datetime, timedelta
 
-from .executor import dryrun_and_verify, run_custodian
+from .executor import dryrun_and_verify, run_custodian, untargeted_arns
 from .mapping import group_by_policy, load_mapping
 from .reporter import build_log_records
+from .policy_meta import load_meta
 from .scope import filter_findings, load_scope
-from .scoping import build_scoped_policy
+from .scoping import build_scoped_policy, extract_scope_value
 
 # 승인 유효 시간. 오래된 승인으로 지금 조치하면 안 된다 -
 # 승인할 때 본 상황과 지금이 다를 수 있다.
@@ -35,6 +36,37 @@ APPROVAL_TTL_HOURS = 24
 
 # finding 을 식별하는 데 최소한으로 필요한 것
 IDENTITY_FIELDS = ("check_id", "resource_uid", "account_uid", "region")
+
+# 한 정책이 한 번에 조치할 수 있는 최대 건수.
+#
+# 실조치는 되돌리기 어려우므로 **예상보다 많이 걸리면 일단 멈춘다.**
+# 승인은 몇 건인 줄 알고 눌렀는데 실행 시점에 대상이 불어났다면 뭔가 잘못된
+# 것이다 - 범위 제한이 안 걸렸거나, 계정 단위 체크에 초과분이 섞였거나.
+MAX_TARGETS = 10
+
+# 초과 리소스(finding 이 없는데 정책에 걸린 것)를 몇 건까지 눈감아 줄지.
+# 계정·리전 단위 체크는 구조상 초과가 생기므로 0 으로 두면 아무것도 못 한다.
+MAX_UNTARGETED = 5
+
+
+def circuit_breaker(policy_name, targets, resources):
+    """조치 대상이 예상 범위를 벗어났는지 본다.
+
+    **실행 직전의 마지막 방어선이다.** 범위 제한(④)이 유일한 방어선인데
+    계정·리전 단위 체크는 그것을 걸 수 없다. 그때 여기서 멈춘다.
+
+    반환: 중단 사유 / 문제 없으면 None
+    """
+    if len(targets) > MAX_TARGETS:
+        return f"조치 대상 {len(targets)}건 - 한 번에 {MAX_TARGETS}건을 넘어 중단"
+
+    untargeted = untargeted_arns(targets, resources)
+    if len(untargeted) > MAX_UNTARGETED:
+        return (
+            f"finding 이 없는 리소스 {len(untargeted)}건이 함께 조치됨 - "
+            f"{MAX_UNTARGETED}건을 넘어 중단"
+        )
+    return None
 
 
 def _to_finding(approval):
@@ -64,6 +96,31 @@ def _expired(finding, ttl_hours):
     return datetime.now() - approved > timedelta(hours=ttl_hours)
 
 
+def rollback_hint(policy_name, finding):
+    """되돌리는 명령을 만든다.
+
+    정책의 metadata.auto.rollback_cli 에 템플릿이 있다. 조치가 나간 뒤에
+    이걸 보여주지 않으면 **필드가 장식으로 남는다** - 문제가 생겼을 때
+    운영자가 정책 파일을 뒤져야 한다.
+
+    템플릿의 {resource_id} · {region} 을 실제 값으로 채운다.
+    """
+    template = (load_meta(policy_name).get("auto") or {}).get("rollback_cli")
+    if not template:
+        return None
+
+    scope_key = (finding.get("mapping") or {}).get("scope_key")
+    resource_id = extract_scope_value(finding.get("resource_uid"), scope_key)
+    try:
+        return template.format(
+            resource_id=resource_id or "<리소스ID>",
+            region=finding.get("region") or "<리전>",
+        )
+    except (KeyError, IndexError):
+        # 템플릿에 우리가 모르는 자리표시자가 있으면 원문 그대로 보여준다
+        return template
+
+
 def _apply(policy_name, findings):
     """실조치를 내보낸다. **여기서 AWS 가 실제로 바뀐다.**
 
@@ -75,6 +132,37 @@ def _apply(policy_name, findings):
         return False, note
     print(f"      조치 대상 좁힘: {note}")
     return run_custodian(policy_path, dry_run=False)
+
+
+def _confirm(policy_name, findings):
+    """조치 후 같은 정책을 다시 돌려 해소됐는지 본다.
+
+    **조치를 내보낸 것과 고쳐진 것은 다르다.** Custodian 이 정상 종료해도
+    권한 부족이나 파라미터 오류로 실제 설정이 안 바뀌었을 수 있다.
+
+    정책당 코드가 따로 필요 없다 - 위반을 찾던 그 필터를 다시 돌려서
+    안 걸리면 해소된 것이다. 값 비교(before/after)는 못 하지만 해소 여부는
+    이걸로 충분하다.
+
+    반영에 시간이 걸리는 조치(propagation_delay)는 아직 기다리지 않는다.
+    그런 건 여기서 still_failing 으로 나올 수 있고, 재확인 기능이 붙을 때
+    대기 시간을 넣는다.
+    """
+    resources = dryrun_and_verify(policy_name, findings)
+    if resources is None:
+        # 재확인 자체가 실패. 조치는 나갔으므로 상태를 모른다고 남긴다
+        for finding in findings:
+            finding["status"] = "remediation_unverified"
+            finding["reason"] = "조치는 실행됐으나 반영 확인에 실패함"
+        return
+
+    for finding in findings:
+        if finding.get("status") == "still_open":
+            finding["status"] = "still_failing"
+            finding["reason"] = "조치를 실행했으나 여전히 위반 상태 - 확인 필요"
+        else:
+            finding["status"] = "remediated"
+            finding["reason"] = "조치 후 재확인에서 해소 확인됨"
 
 
 def remediate(approvals, apply=False, ttl_hours=APPROVAL_TTL_HOURS):
@@ -113,7 +201,8 @@ def remediate(approvals, apply=False, ttl_hours=APPROVAL_TTL_HOURS):
         print(f"  - {policy_name} (승인 {len(group)}건)")
 
         # 승인 시점의 판정을 믿지 않고 지금 상태를 다시 본다
-        if dryrun_and_verify(policy_name, group) is None:
+        resources = dryrun_and_verify(policy_name, group)
+        if resources is None:
             continue
 
         target = [f for f in group if f.get("status") == "still_open"]
@@ -126,6 +215,15 @@ def remediate(approvals, apply=False, ttl_hours=APPROVAL_TTL_HOURS):
             print("      조치할 건이 없습니다 (전부 해소되었거나 대조 불가)")
             continue
 
+        # 실행 직전에 대상 규모를 다시 본다. 승인 시점과 달라졌을 수 있다
+        blocked = circuit_breaker(policy_name, target, resources)
+        if blocked:
+            for finding in target:
+                finding["status"] = "blocked"
+                finding["reason"] = blocked
+            print(f"      [중단] {blocked}")
+            continue
+
         if not apply:
             for finding in target:
                 finding["status"] = "ready"
@@ -134,11 +232,25 @@ def remediate(approvals, apply=False, ttl_hours=APPROVAL_TTL_HOURS):
             continue
 
         ok, error = _apply(policy_name, target)
-        for finding in target:
-            finding["status"] = "remediated" if ok else "remediation_failed"
-            finding["reason"] = None if ok else error
-        print(f"      {'조치 완료' if ok else '조치 실패'} {len(target)}건")
         if not ok:
-            print(f"      사유: {error}")
+            for finding in target:
+                finding["status"] = "remediation_failed"
+                finding["reason"] = error
+            print(f"      조치 실패 {len(target)}건 - {error}")
+            continue
+
+        print(f"      조치 실행 {len(target)}건 - 반영 확인 중")
+        _confirm(policy_name, target)
+
+        # 되돌리는 방법을 조치 직후에 알린다. 나중에 찾게 하면 늦다
+        for finding in target:
+            hint = rollback_hint(policy_name, finding)
+            if hint:
+                finding["rollback_cli"] = hint
+        hints = {f["rollback_cli"] for f in target if f.get("rollback_cli")}
+        if hints:
+            print("      되돌리려면:")
+            for hint in sorted(hints):
+                print(f"        {hint}")
 
     return build_log_records(findings)
