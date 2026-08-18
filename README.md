@@ -35,6 +35,15 @@ Phase 2  remediate()  승인된 건만 받아 다시 검증하고 조치한다
 pip install pyyaml c7n
 ```
 
+**AWS 없이 먼저 돌려보려면** `tests/` 의 스텁을 쓴다. 자격증명도 랩도 필요 없다.
+
+```bash
+sh tests/run.sh --yes            # 판정까지
+sh tests/run.sh --yes --apply    # 조치 후 재확인까지
+```
+
+무엇을 확인할 수 있고 무엇은 확인할 수 없는지는 [tests/README.md](tests/README.md) 참고.
+
 ### Phase 1 — 판정
 
 ```bash
@@ -152,7 +161,7 @@ dryrun 으로 대상을 확인한 뒤 **리소스마다** 물어본다.
 [1/4] findings 파싱: output/prowler-output-…ocsf.json
       전체 finding 639건
       FAIL 384건 추출
-      범위 [scope.yml] 계정 196338354352 / 리전 ap-northeast-2
+      범위 [scope.yml] 계정 123456789012 / 리전 ap-northeast-2
 [2/4] 매핑 로드: .../mapping.yml
       매핑 항목 102건
       [주의] s3_bucket_kms_encryption: SSE-KMS 기본 암호화 적용 후 …
@@ -162,7 +171,7 @@ dryrun 으로 대상을 확인한 뒤 **리소스마다** 물어본다.
   - s3-bucket-kms-encryption (finding 4건)
       대상 4건으로 범위 제한 (Name)
       dryrun 대상 리소스 4건 / ARN 확보 4건
-      조회 계정 196338354352
+      조회 계정 123456789012
 [4/4] 조치 로그 저장: .../logs/actions-20260816-204927.json
 
 === 요약 ===
@@ -210,8 +219,12 @@ cspm/
 │   ├── mapping.yml                #   판정 결과 - 어디로 보낼까 (102종)
 │   ├── runbook.yml                #   수동 조치 안내 - CLI · 콘솔 절차 (83종)
 │   ├── scope.example.yml          #   대상 계정·리전 예시 (실제 값은 scope.yml)
-│   └── policies/                  #   서비스별로 한 파일 (정책 20개)
-│       ├── s3.yml  ec2.yml  iam.yml  vpc.yml  cloudtrail.yml
+│   └── policies/                  #   서비스별로 한 파일 (정책 23개)
+│       ├── s3.yml  ec2.yml  iam.yml  vpc.yml  cloudtrail.yml  elbv2.yml
+├── tests/                         # AWS 없이 돌려보기
+│   ├── fake_custodian.py          #   가짜 custodian - 결과 파일만 흉내낸다
+│   ├── bin/custodian              #   PATH 에 앞세우는 래퍼
+│   └── run.sh                     #   전체 흐름 한 번에
 ├── sample-findings.ocsf.json      # 동작 확인용 샘플
 ├── README.md
 ├── output/                        # Prowler 결과 (git 제외)

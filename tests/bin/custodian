@@ -1,0 +1,3 @@
+#!/bin/sh
+# PATH 에 이 디렉토리를 앞세우면 코드가 부르는 custodian 이 스텁으로 바뀐다.
+exec python3 "$(dirname "$0")/../fake_custodian.py" "$@"
