@@ -58,7 +58,19 @@ python -m response --no  findings.json          # 전부 거부
 
 ### Phase 2 — 승인된 건 조치
 
-라이브러리로만 부른다. 웹이나 오케스트레이터가 승인 목록을 넘긴다.
+**CLI** — Phase 1 에서 승인한 건을 그 자리에서 조치한다. 랩 검증용 경로다.
+
+```bash
+python -m response --apply <findings.json>
+```
+
+`--apply` 는 **AWS 리소스를 실제로 바꾼다.** 승인한 건에만 나가고, 실행 직전에
+`apply` 를 그대로 입력받는 확인을 한 번 더 거친다. 비대화형이면 실행하지 않는다 —
+`--yes --apply` 로 확인 없이 전부 나가는 것을 막기 위해서다.
+
+되돌리는 것은 자동화되어 있지 않다. 조치 직후 로그의 `rollback_cli` 에 명령이 남는다.
+
+**라이브러리** — 웹이나 오케스트레이터가 승인 목록을 넘긴다.
 
 ```python
 from response import run, remediate
@@ -69,7 +81,7 @@ pending = [r for r in records if r["status"] == "approval_pending"]
 # ... 사람이 웹에서 승인하고 approved_at 을 붙여서 돌려준다 ...
 
 results = remediate(approvals)              # Phase 2 (재검증만)
-results = remediate(approvals, apply=True)  # 실조치까지 (아직 쓰지 않는다)
+results = remediate(approvals, apply=True)  # 실조치까지
 ```
 
 입력은 **`check_id` · `resource_uid` · `account_uid`** 만 있으면 된다. 정책·위험도·범위는
@@ -556,11 +568,16 @@ CLI 복사 버튼과 콘솔 절차를 나눠 그리려면 구조가 필요하기
 |---|---|
 | **조치 대상** | `still_open` · `approved` · `auto_approved` · `ready` |
 | **조치 완료** | `remediated` |
-| **조치 안 함** | `out_of_scope` · `unmapped` · `not_supported` · `manual_required` · `declined` · `approval_pending` · `expired` · `no_longer_open` |
-| **판정 불가 · 실패** | `already_fixed` · `arn_not_found` · `account_mismatch` · `failed` · `remediation_failed` |
+| **조치 안 함** | `out_of_scope` · `unmapped` · `not_supported` · `manual_required` · `declined` · `approval_pending` · `expired` · `no_longer_open` · `blocked` |
+| **판정 불가 · 실패** | `already_fixed` · `arn_not_found` · `account_mismatch` · `failed` · `remediation_failed` · `still_failing` · `remediation_unverified` |
 
 **`auto_approved` 는 지금 나오지 않는다.** `optin.is_opted_in()` 이 항상 `False` 라
 자동 실행이 켜지지 않기 때문이다. DB 를 연결하면 그때부터 나온다.
+
+**조치 후 3종은 `--apply` 경로에서만 나온다.** `still_failing` 은 조치를 내보냈는데
+정책이 여전히 걸리는 경우다 — 실패일 수도 있고 **반영이 아직 안 된 것일 수도 있다**
+(재확인이 즉시 돌기 때문). `remediation_unverified` 는 조치는 나갔는데 재확인 자체가
+실패한 경우이고, `blocked` 는 서킷브레이커가 막은 경우다.
 
 **`already_fixed` 는 "안전하다"가 아니다.** 원인이 셋(이미 해소 / 두 도구의 판정
 기준 차이 / 리소스 삭제)인데 코드가 구분하지 못한다. 조회 권한이 없어 안 보이는
