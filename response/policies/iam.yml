@@ -253,6 +253,16 @@ policies:
         state: detached
         arn: arn:aws:iam::aws:policy/AdministratorAccess
 
+    metadata:
+      prowler_check: iam_user_administrator_access_policy
+      approve:
+        disruption: access
+        blast_radius: resource
+        propagation_delay: seconds
+        reversible: true
+        cost_impact: none
+        risk_note: AdministratorAccess 정책을 분리하면 해당 IAM User가 기존에 사용하던 AWS 작업 권한을 잃어 정상 업무가 중단될 수 있으므로 승인 후 실행한다
+
   - name: iam-password-policy-expires-passwords-within-90-days-or-less
     resource: aws.account
     description: IAM Password Policy의 MaxPasswordAge가 없거나 90일을 초과한 계정을 탐지하고, set-password-policy로 최대 사용 기간을 90일로 설정한다.

@@ -96,3 +96,25 @@ policies:
       reversible: true
       cost_impact: none
       risk_note: HTTPS를 강제하는 Bucket Policy를 추가하면 기존 HTTP 기반 S3 접근이 차단될 수 있으므로 승인 후 실행한다
+- name: s3-bucket-object-versioning
+  resource: aws.s3
+  description: Versioning이 활성화되지 않은 S3 Bucket을 탐지하고, toggle-versioning으로 활성화한다.
+  filters:
+  - or:
+    - type: value
+      key: Versioning.Status
+      value: Suspended
+    - type: value
+      key: Versioning.Status
+      value: absent
+  actions:
+  - type: toggle-versioning
+    enabled: true
+  metadata:
+    prowler_check: s3_bucket_object_versioning
+    approve:
+      disruption: none
+      blast_radius: resource
+      propagation_delay: minutes
+      reversible: false
+      cost_impact: low
